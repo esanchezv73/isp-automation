@@ -31,9 +31,9 @@ topology:
       type: ixrd3
       #startup-config: configs/srlswitch.cfg 
     
-    vjuno:
-      kind: juniper_vjunosrouter
-      image: arthurk99/juniper-vjunos-router:23.4  
+    #vjuno:
+      #kind: juniper_vjunosrouter
+      #image: arthurk99/juniper-vjunos-router:23.4  
       #startup-config: srl.cli
   
     rt-slas-core:
@@ -67,8 +67,7 @@ topology:
   links:
     - endpoints: ["rt-ixa:e1-1", "wan1:eth1"]
     - endpoints: ["rt-ufinet:e1-1", "wan2:eth1"]
-    - endpoints: ["wan1:eth2", "vjuno:eth1"]
-    - endpoints: ["wan2:eth2", "vjuno:eth2"]
-    - endpoints: ["vjuno:eth1", "rt-slas-core:Ethernet0/1"]
-    - endpoints: ["vjuno:eth3", "srlswitch:e1-1"]
+    - endpoints: ["wan1:eth2", "rt-core:e1-1"]
+    - endpoints: ["wan2:eth2", "rt-core:e1-2"]
+    - endpoints: ["rt-core:e1-3", "srlswitch:e1-1"]
     - endpoints: ["rt-slas-core:Ethernet0/1", "srlswitch:e1-2"]   
