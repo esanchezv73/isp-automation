@@ -66,7 +66,7 @@ topology:
   links:
     - endpoints: ["rt-ixa:e1-1", "wan1:eth1"]
     - endpoints: ["rt-ufinet:e1-1", "wan2:eth1"]
-    - endpoints: ["wan1:eth2", "vjuno:eth1"]
-    - endpoints: ["wan2:eth2", "vjuno:eth2"]
-    - endpoints: ["vjuno:eth3", "srlswitch:e1-1"]
+    - endpoints: ["wan1:eth2", "rt-core:eth1"]
+    - endpoints: ["wan2:eth2", "rt-core:eth2"]
+    - endpoints: ["rt-core:eth3", "srlswitch:e1-1"]
     - endpoints: ["rt-slas-core:Ethernet0/1", "srlswitch:e1-2"]   
