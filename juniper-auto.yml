@@ -1,0 +1,20 @@
+name: juniper
+
+topology:
+  nodes:
+    vjuno:
+      kind: juniper_vjunosrouter
+      image: arthurk99/juniper-vjunos-router:23.4  
+      #startup-config: srl.cli
+  
+    rt-slas-core:
+      kind: cisco_iol
+      image: arthurk99/cisco-iol:17.15.01 
+      
+    nornir:
+      kind: linux
+      image: esanchezv/kali-python3:latest 
+
+  links:
+    - endpoints: ["vjuno:eth1", "rt-slas-core:Ethernet0/1"]
+    
