@@ -17,12 +17,14 @@ topology:
       type: ixrd3
       #startup-config: configs/srlswitch.cfg 
 
-    #rt-core:
-      #kind: nokia_srlinux
-      #mgmt-ipv4: 172.80.80.5
-      #image: ghcr.io/nokia/srlinux:24.10.1
-      #type: ixrd3
-      #startup-config: configs/srlswitch.cfg   
+    rt-core:
+      kind: linux
+      image: quay.io/frrouting/frr:8.4.1
+      binds:
+        - configs/R1-frr.conf:/etc/frr/frr.conf
+        - configs/R1-frr-daemons.cfg:/etc/frr/daemons
+      exec:
+        - "sysctl -w net.ipv6.conf.all.forwarding=1"
     
     srlswitch:
       kind: nokia_srlinux
@@ -31,9 +33,9 @@ topology:
       type: ixrd3
       #startup-config: configs/srlswitch.cfg 
     
-    vjuno:
-      kind: juniper_vjunosrouter
-      image: arthurk99/juniper-vjunos-router:23.4  
+    #vjuno:
+      #kind: juniper_vjunosrouter
+      #image: arthurk99/juniper-vjunos-router:23.4  
       #startup-config: srl.cli
   
     rt-slas-core:
