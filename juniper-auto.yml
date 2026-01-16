@@ -58,5 +58,10 @@ topology:
       image: esanchezv/kali-python3:latest 
 
   links:
+    - endpoints: ["rt-ixa:e1-1", "wan1:eth1"]
+    - endpoints: ["rt-ufinet:e1-1", "wan2:eth1"]
+    - endpoints: ["wan1:eth2", "vjuno:eth1"]
+    - endpoints: ["wan2:eth2", "vjuno:eth2"]
     - endpoints: ["vjuno:eth1", "rt-slas-core:Ethernet0/1"]
-    
+    - endpoints: ["vjuno:eth3", "srlswitch:e1-1"]
+    - endpoints: ["rt-slas-core:Ethernet0/1", "srlswitch:e1-2"]   
