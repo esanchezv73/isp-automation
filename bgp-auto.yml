@@ -26,22 +26,22 @@ topology:
       exec:
         - "sysctl -w net.ipv6.conf.all.forwarding=1"
 
-    #rt-corpo-srl:
-      #kind: nokia_srlinux
-      #mgmt-ipv4: 172.80.80.5
-      #image: ghcr.io/nokia/srlinux:24.10.1
-      #type: ixrd3
-      #startup-config: configs/rt-ufinet.cfg 
+    switch-wan:
+      kind: nokia_srlinux
+      mgmt-ipv4: 172.80.80.5
+      image: ghcr.io/nokia/srlinux:24.10.1
+      type: ixrd3
+      startup-config: configs/switch-wan.cfg 
 
-    #rt-clientes-frr:
-      #kind: linux
-      #image: quay.io/frrouting/frr:8.4.1
-      #binds:
-        #- configs/rt-clientes-frr.conf:/etc/frr/frr.conf
-        #- configs/R1-frr-daemons.cfg:/etc/frr/daemons
-      #exec:
-        #- "sysctl -w net.ipv6.conf.all.forwarding=1"
-    
+    srvweb:
+       kind: linux
+       image: docker.io/esanchezv/srvhttps:latest
+       binds:
+        
+        - configs/web-server.html:/var/www/localhost/htdocs/index.html
+       exec:
+        - ip -6 route del default dev eth0
+            
     
     srlswitch:
       kind: nokia_srlinux
@@ -95,4 +95,6 @@ topology:
     - endpoints: ["rt-core:eth3", "srlswitch:e1-1"]
     - endpoints: ["PC-corpo:eth1", "srlswitch:e1-2"]
     - endpoints: ["rt-slas-core:Ethernet0/1", "srlswitch:e1-3"] 
-   
+    - endpoints: ["rt-ixa:e1-2", "switch-wan:eth1"]
+    - endpoints: ["rt-ufinet:e1-2", "switch-wan:eth2"]
+    - endpoints: ["srvweb:eth1", "switch-wan:eth3"]
