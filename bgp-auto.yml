@@ -15,7 +15,7 @@ topology:
       #mgmt-ipv4: 172.80.80.5
       image: ghcr.io/nokia/srlinux:24.10.1
       type: ixrd3
-      #startup-config: configs/srlswitch.cfg 
+      startup-config: configs/rt-ufinet.cfg 
 
     rt-core:
       kind: linux
@@ -25,6 +25,23 @@ topology:
         - configs/R1-frr-daemons.cfg:/etc/frr/daemons
       exec:
         - "sysctl -w net.ipv6.conf.all.forwarding=1"
+
+    rt-corpo:
+      kind: nokia_srlinux
+      #mgmt-ipv4: 172.80.80.5
+      image: ghcr.io/nokia/srlinux:24.10.1
+      type: ixrd3
+      #startup-config: configs/rt-ufinet.cfg 
+
+    rt-clientes:
+      kind: linux
+      image: quay.io/frrouting/frr:8.4.1
+      binds:
+        #- configs/R1-frr.conf:/etc/frr/frr.conf
+        - configs/R1-frr-daemons.cfg:/etc/frr/daemons
+      exec:
+        - "sysctl -w net.ipv6.conf.all.forwarding=1"
+    
     
     srlswitch:
       kind: nokia_srlinux
@@ -69,4 +86,8 @@ topology:
     - endpoints: ["wan1:eth2", "rt-core:eth1"]
     - endpoints: ["wan2:eth2", "rt-core:eth2"]
     - endpoints: ["rt-core:eth3", "srlswitch:e1-1"]
-    - endpoints: ["rt-slas-core:Ethernet0/1", "srlswitch:e1-2"]   
+    - endpoints: ["rt-core:eth4", "srlswitch:e1-2"]
+    - endpoints: ["rt-core:eth5", "srlswitch:e1-3"]
+    - endpoints: ["rt-corpo:e1-1", "srlswitch:e1-4"]
+    - endpoints: ["rt-clientes:eth1", "srlswitch:e1-5"]
+    - endpoints: ["rt-slas-core:Ethernet0/1", "srlswitch:e1-6"]   
