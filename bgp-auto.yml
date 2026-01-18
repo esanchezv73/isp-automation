@@ -8,14 +8,14 @@ topology:
       #mgmt-ipv4: 172.80.80.5
       image: ghcr.io/nokia/srlinux:24.10.1
       type: ixrd3
-      #startup-config: configs/rt-ixa.cfg 
+      startup-config: configs/rt-ixa.cfg 
 
     rt-ufinet:
       kind: nokia_srlinux
       #mgmt-ipv4: 172.80.80.5
       image: ghcr.io/nokia/srlinux:24.10.1
       type: ixrd3
-      #startup-config: configs/rt-ufinet.cfg 
+      startup-config: configs/rt-ufinet.cfg 
 
     rt-core:
       kind: linux
@@ -78,6 +78,10 @@ topology:
     PC-corpo:
       kind: linux
       image: esanchezv/kaliipv6:latest
+      exec:
+        - ip -6 address add 2001:db8:ca01::2/64 dev eth1
+        - ip -6 route del default dev eth0
+        - ip -6 route add default via 2001:db8:ca01::1
 
     #PC-cliente:
       #kind: linux
