@@ -37,7 +37,7 @@ topology:
       kind: linux
       image: quay.io/frrouting/frr:8.4.1
       binds:
-        #- configs/R1-frr.conf:/etc/frr/frr.conf
+        - configs/rt-clientes-frr.conf:/etc/frr/frr.conf
         - configs/R1-frr-daemons.cfg:/etc/frr/daemons
       exec:
         - "sysctl -w net.ipv6.conf.all.forwarding=1"
@@ -48,13 +48,9 @@ topology:
       #mgmt-ipv4: 172.80.80.5
       image: ghcr.io/nokia/srlinux:24.10.1
       type: ixrd3
-      #startup-config: configs/srlswitch.cfg 
+      startup-config: configs/srlswitch.cfg 
     
-    #vjuno:
-      #kind: juniper_vjunosrouter
-      #image: arthurk99/juniper-vjunos-router:23.4  
-      #startup-config: srl.cli
-  
+    
     rt-slas-core:
       kind: cisco_iol
       image: arthurk99/cisco-iol:17.15.01 
