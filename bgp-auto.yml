@@ -8,20 +8,20 @@ topology:
       #mgmt-ipv4: 172.80.80.5
       image: ghcr.io/nokia/srlinux:24.10.1
       type: ixrd3
-      startup-config: configs/rt-ixa.cfg 
+      #startup-config: configs/rt-ixa.cfg 
 
     rt-ufinet:
       kind: nokia_srlinux
       #mgmt-ipv4: 172.80.80.5
       image: ghcr.io/nokia/srlinux:24.10.1
       type: ixrd3
-      startup-config: configs/rt-ufinet.cfg 
+      #startup-config: configs/rt-ufinet.cfg 
 
     rt-core:
       kind: linux
       image: quay.io/frrouting/frr:8.4.1
       binds:
-        - configs/R1-frr.conf:/etc/frr/frr.conf
+        #- configs/R1-frr.conf:/etc/frr/frr.conf
         - configs/R1-frr-daemons.cfg:/etc/frr/daemons
       exec:
         - "sysctl -w net.ipv6.conf.all.forwarding=1"
@@ -37,7 +37,7 @@ topology:
       kind: linux
       image: quay.io/frrouting/frr:8.4.1
       binds:
-        - configs/rt-clientes-frr.conf:/etc/frr/frr.conf
+        #- configs/rt-clientes-frr.conf:/etc/frr/frr.conf
         - configs/R1-frr-daemons.cfg:/etc/frr/daemons
       exec:
         - "sysctl -w net.ipv6.conf.all.forwarding=1"
