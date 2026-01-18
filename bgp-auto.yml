@@ -26,21 +26,21 @@ topology:
       exec:
         - "sysctl -w net.ipv6.conf.all.forwarding=1"
 
-    rt-corpo-srl:
-      kind: nokia_srlinux
+    #rt-corpo-srl:
+      #kind: nokia_srlinux
       #mgmt-ipv4: 172.80.80.5
-      image: ghcr.io/nokia/srlinux:24.10.1
-      type: ixrd3
+      #image: ghcr.io/nokia/srlinux:24.10.1
+      #type: ixrd3
       #startup-config: configs/rt-ufinet.cfg 
 
-    rt-clientes-frr:
-      kind: linux
-      image: quay.io/frrouting/frr:8.4.1
-      binds:
+    #rt-clientes-frr:
+      #kind: linux
+      #image: quay.io/frrouting/frr:8.4.1
+      #binds:
         #- configs/rt-clientes-frr.conf:/etc/frr/frr.conf
-        - configs/R1-frr-daemons.cfg:/etc/frr/daemons
-      exec:
-        - "sysctl -w net.ipv6.conf.all.forwarding=1"
+        #- configs/R1-frr-daemons.cfg:/etc/frr/daemons
+      #exec:
+        #- "sysctl -w net.ipv6.conf.all.forwarding=1"
     
     
     srlswitch:
@@ -79,9 +79,9 @@ topology:
       kind: linux
       image: esanchezv/kaliipv6:latest
 
-    PC-cliente:
-      kind: linux
-      image: esanchezv/kaliipv6:latest
+    #PC-cliente:
+      #kind: linux
+      #image: esanchezv/kaliipv6:latest
    
   links:
     - endpoints: ["rt-ixa:e1-1", "wan1:eth1"]
@@ -89,10 +89,6 @@ topology:
     - endpoints: ["wan1:eth2", "rt-core:eth1"]
     - endpoints: ["wan2:eth2", "rt-core:eth2"]
     - endpoints: ["rt-core:eth3", "srlswitch:e1-1"]
-    - endpoints: ["rt-core:eth4", "srlswitch:e1-2"]
-    - endpoints: ["rt-core:eth5", "srlswitch:e1-3"]
-    - endpoints: ["rt-corpo-srl:e1-1", "srlswitch:e1-4"]
-    - endpoints: ["rt-clientes-frr:eth1", "srlswitch:e1-5"]
-    - endpoints: ["rt-slas-core:Ethernet0/1", "srlswitch:e1-6"] 
-    - endpoints: ["rt-corpo-srl:e1-2", "PC-corpo:eth1"]
-    - endpoints: ["rt-clientes-frr:eth2", "PC-cliente:eth1"]
+    - endpoints: ["PC-corpo:eth1", "srlswitch:e1-2"]
+    - endpoints: ["rt-slas-core:Ethernet0/1", "srlswitch:e1-3"] 
+   
