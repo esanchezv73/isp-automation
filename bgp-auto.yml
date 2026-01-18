@@ -37,8 +37,7 @@ topology:
        kind: linux
        image: docker.io/esanchezv/srvhttps:latest
        binds:
-        
-        - configs/web-server.html:/var/www/localhost/htdocs/index.html
+        #- configs/web-server.html:/var/www/localhost/htdocs/index.html
        exec:
         - ip -6 route del default dev eth0
             
