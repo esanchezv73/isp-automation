@@ -28,7 +28,7 @@ topology:
 
     switch-wan:
       kind: nokia_srlinux
-      mgmt-ipv4: 172.80.80.5
+      #mgmt-ipv4: 172.80.80.5
       image: ghcr.io/nokia/srlinux:24.10.1
       type: ixrd3
       startup-config: configs/switch-wan.cfg 
