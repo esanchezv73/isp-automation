@@ -27,11 +27,10 @@ topology:
         - "sysctl -w net.ipv6.conf.all.forwarding=1"
 
     switch-wan:
-      kind: nokia_srlinux
+      kind: aruba_aoscx
       #mgmt-ipv4: 172.80.80.5
-      image: ghcr.io/nokia/srlinux:24.10.1
-      type: ixrd3
-      startup-config: configs/switch-wan.cfg 
+      image: vrnetlab/aruba_arubaos-cx:20240731173624 
+      #startup-config: configs/switch-wan.cfg 
 
     srvweb:
        kind: linux
