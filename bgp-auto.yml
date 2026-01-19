@@ -27,10 +27,11 @@ topology:
         - "sysctl -w net.ipv6.conf.all.forwarding=1"
 
     switch-wan:
-      kind: aruba_aoscx
+      kind: cisco_iol
       #mgmt-ipv4: 172.80.80.5
-      image: vrnetlab/aruba_arubaos-cx:20240731173624 
-      startup-config: configs/myconfig.txt 
+      image: arthurk99/cisco-iol-l2:17.15.01 
+      type: L2
+      #startup-config: configs/myconfig.txt 
 
     srvweb:
        kind: linux
