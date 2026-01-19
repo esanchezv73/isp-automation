@@ -23,12 +23,13 @@ topology:
     rt-core:
       kind: linux
       mgmt-ipv4: 172.90.90.7
-      image: quay.io/frrouting/frr:8.4.1
-      binds:
-        - configs/rt-core-frr.conf:/etc/frr/frr.conf
-        - configs/R1-frr-daemons.cfg:/etc/frr/daemons
-      exec:
-        - "sysctl -w net.ipv6.conf.all.forwarding=1"
+      image: vrnetlab/huawei_vrp:ne40e-8.180
+      startup-config: configs/myconfig.txt
+      #binds:
+        #- configs/rt-core-frr.conf:/etc/frr/frr.conf
+        #- configs/R1-frr-daemons.cfg:/etc/frr/daemons
+      #exec:
+        #- "sysctl -w net.ipv6.conf.all.forwarding=1"
 
     switch-wan:
       kind: cisco_iol
