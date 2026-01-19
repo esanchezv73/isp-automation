@@ -24,7 +24,7 @@ topology:
       kind: linux
       mgmt-ipv4: 172.90.90.7
       image: vrnetlab/huawei_vrp:ne40e-8.180
-      startup-config: configs/myconfig.txt
+      #startup-config: configs/myconfig.txt
       #binds:
         #- configs/rt-core-frr.conf:/etc/frr/frr.conf
         #- configs/R1-frr-daemons.cfg:/etc/frr/daemons
