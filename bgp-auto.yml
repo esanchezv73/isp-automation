@@ -1,5 +1,7 @@
 name: bgp-lab
-
+mgmt:
+  network: bgp
+  ipv4-subnet: 172.90.90.0/24
 topology:
   nodes:
 
