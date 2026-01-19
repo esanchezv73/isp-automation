@@ -92,7 +92,6 @@ topology:
       image: esanchezv/kali-python3:latest 
       binds:
        - configs/nornir.sh:/root/nornir.sh
-       - configs/ansible.sh:/root/ansible.sh
        - configs/nornir/automation:/root/automation
       exec:
        - python3 -m pip config set global.break-system-packages true
