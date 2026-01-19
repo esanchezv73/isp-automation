@@ -1,0 +1,26 @@
+runner:
+  plugin: threaded
+  options:
+    num_workers: 10
+
+inventory:
+  plugin: NetBoxInventory2
+  options:
+    nb_url: "http://192.168.117.135:8000"
+    nb_token: "c889397e6b09cfd1556378047213220b2c47b7e8"
+    ssl_verify: false
+
+    include_devices: true
+    include_vms: false
+
+    filter_parameters:
+      manufacturer: huawei
+      platform: huawei_vrp
+      status: active
+
+    hostname_source: primary_ip
+    platform: platform.slug
+
+defaults:
+   username: admin
+   password: admin
