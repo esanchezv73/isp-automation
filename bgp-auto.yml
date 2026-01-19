@@ -21,7 +21,7 @@ topology:
       kind: linux
       image: quay.io/frrouting/frr:8.4.1
       binds:
-        - configs/rt-core-frr.conf:/etc/frr/frr.conf
+        #- configs/rt-core-frr.conf:/etc/frr/frr.conf
         - configs/R1-frr-daemons.cfg:/etc/frr/daemons
       exec:
         - "sysctl -w net.ipv6.conf.all.forwarding=1"
