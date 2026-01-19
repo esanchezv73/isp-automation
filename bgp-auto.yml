@@ -95,5 +95,5 @@ topology:
     - endpoints: ["PC-corpo:eth1", "srlswitch:e1-2"]
     - endpoints: ["rt-slas-core:Ethernet0/1", "srlswitch:e1-3"] 
     - endpoints: ["rt-ixa:e1-2", "switch-wan:e1-1"]
-    - endpoints: ["rt-ufinet:e1-2", "switch-wan:e1-2"]
+    #- endpoints: ["rt-ufinet:e1-2", "switch-wan:e1-2"]
     - endpoints: ["srvweb:eth1", "switch-wan:e1-3"]
