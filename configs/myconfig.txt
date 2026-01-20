@@ -1,3 +1,4 @@
+system-view
 interface Ethernet 1/0/0
 ipv6 enable
 ipv6 address 2001:db8:ffaa::1/64
@@ -15,6 +16,7 @@ undo shutdown
 quit
 interface LoopBack 0
 ip address 10.1.0.1 32
-quit
 commit
+quit
+
 
