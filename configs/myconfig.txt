@@ -20,27 +20,5 @@ quit
 interface LoopBack 0
 ip address 10.1.0.1 32
 quit
-ip ipv6-prefix CORPORATIVO index 10 permit 2001:db8:ca01:: 64
-route-policy EXPORT-TO-IXA permit node 10
-apply community 65000:65002 additive
-quit
-route-policy SET-LOCAL-PREF-IXA permit node 10
-apply local-preference 200
-quit
-bgp 65000
-router-id 10.1.0.1
-peer 2001:db8:ffaa::255 as-number 65002 
-peer 2001:db8:ffaa::255 connect-interface Ethernet 1/0/0
-peer 2001:db8:ffac::255 as-number 65003
-peer 2001:db8:ffac::255 connect-interface Ethernet 1/0/1
-ipv6-family unicast
-import-route direct
-peer 2001:db8:ffaa::255 enable
-peer 2001:db8:ffaa::255 route-policy EXPORT-TO-IXA export
-peer 2001:db8:ffaa::255 route-policy SET-LOCAL-PREF-IXA import
-peer 2001:db8:ffac::255 enable
-peer 2001:db8:ffac::255 route-policy EXPORT-TO-UFINET export
-maximum load-balancing 2
-quit
 commit
-quit
+
