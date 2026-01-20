@@ -2,19 +2,16 @@ system-view
 interface Ethernet 1/0/0
 ipv6 enable
 ipv6 address 2001:db8:ffaa::1/64
-undo ipv6 nd ra halt
 undo shutdown
 quit
 interface Ethernet 1/0/1
 ipv6 enable
 ipv6 address 2001:db8:ffac::1/64
-undo ipv6 nd ra halt
 undo shutdown
 quit
 interface Ethernet 1/0/2
 ipv6 enable
 ipv6 address 2001:db8:ca01::1/64
-undo ipv6 nd ra halt
 undo shutdown
 quit
 interface LoopBack 0
