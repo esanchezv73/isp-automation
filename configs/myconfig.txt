@@ -37,10 +37,12 @@ ipv6-family unicast
 network 2001:db8:ca01:: 64
 bestroute as-path-ignore
 peer 2001:db8:ffaa::255 enable
+y
 peer 2001:db8:ffaa::255 route-policy EXPORT-TO-IXA export
 peer 2001:DB8:FFAA::255 advertise-community
 peer 2001:db8:ffaa::255 route-policy SET-LOCAL-PREF-IXA import
 peer 2001:db8:ffac::255 enable
+y
 peer 2001:db8:ffac::255 route-policy EXPORT-TO-UFINET export
 peer 2001:DB8:FFAC::255 advertise-community
 peer 2001:db8:ffac::255 route-policy SET-LOCAL-PREF-UFINET import
