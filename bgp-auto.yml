@@ -1,7 +1,5 @@
 name: bgp-lab
-mgmt:
-  network: isp-net
-  ipv4-subnet: 172.90.90.0/24
+
 
 topology:
   nodes:
@@ -22,7 +20,7 @@ topology:
 
     rt-core:
       kind: huawei_vrp
-      mgmt-ipv4: 172.90.90.7
+      #mgmt-ipv4: 172.90.90.7
       image: vrnetlab/huawei_vrp:ne40e-8.180
       startup-config: configs/myconfig.txt
       #binds:
@@ -43,8 +41,8 @@ topology:
        image: docker.io/esanchezv/srvhttps:latest
        binds:
         #- configs/web-server.html:/var/www/localhost/htdocs/index.html
-       #exec:
-        #- ip -6 route del default dev eth0
+       exec:
+         - ip -6 route del default dev eth0
             
     
     srlswitch:
@@ -84,7 +82,7 @@ topology:
       image: esanchezv/kaliipv6:latest
       exec:
         - ip -6 address add 2001:db8:ca01::2/64 dev eth1
-        #- ip -6 route del default dev eth0
+        - ip -6 route del default dev eth0
         - ip -6 route add default via 2001:db8:ca01::1
 
     nornir:
