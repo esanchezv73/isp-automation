@@ -21,7 +21,7 @@ topology:
       startup-config: configs/rt-ufinet.cfg 
 
     rt-core:
-      kind: linux
+      kind: huawei_vrp
       mgmt-ipv4: 172.90.90.7
       image: vrnetlab/huawei_vrp:ne40e-8.180
       #startup-config: configs/myconfig.txt
