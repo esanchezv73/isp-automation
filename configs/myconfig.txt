@@ -17,5 +17,18 @@ ipv6 address 2001:db8:ca01::1/64
 undo ipv6 nd ra halt
 undo shutdown
 quit
+interface LoopBack
+ip address 10.1.0.1 32
+quit
+ip ipv6-prefix CORPORATIVO index 5 permit 2001:db8:ca01:: 64
+route-policy EXPORT-TO-IXA permit node 10
+apply community 65000:65002 additive
+quit
+SET-LOCAL-PREF-IXA permit node 10
+apply local-preference 200
+quit
+bgp 65000
+router-id 10.1.0.1
+quit
 commit
 quit
