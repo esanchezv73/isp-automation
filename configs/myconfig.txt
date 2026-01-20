@@ -20,7 +20,7 @@ quit
 interface LoopBack 0
 ip address 10.1.0.1 32
 quit
-ip ipv6-prefix CORPORATIVO index 5 permit 2001:db8:ca01:: 64
+ip ipv6-prefix CORPORATIVO index 10 permit 2001:db8:ca01:: 64
 route-policy EXPORT-TO-IXA permit node 10
 apply community 65000:65002 additive
 quit
