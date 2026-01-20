@@ -29,8 +29,10 @@ apply local-preference 200
 quit
 bgp 65000
 router-id 10.1.0.1
-peer 2001:db8:ffaa::255 as-number 65002 connect-interface Ethernet 1/0/0
-peer 2001:db8:ffac::255 as-number 65003 connect-interface Ethernet 1/0/1
+peer 2001:db8:ffaa::255 as-number 65002 
+peer 2001:db8:ffaa::255 connect-interface Ethernet 1/0/0
+peer 2001:db8:ffac::255 as-number 65003
+peer 2001:db8:ffac::255 connect-interface Ethernet 1/0/1
 ipv6-family unicast
 import-route direct
 peer 2001:db8:ffaa::255 enable
