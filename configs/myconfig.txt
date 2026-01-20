@@ -38,6 +38,8 @@ import-route direct
 peer 2001:db8:ffaa::255 enable
 peer 2001:db8:ffaa::255 route-policy EXPORT-TO-IXA export
 peer 2001:db8:ffaa::255 route-policy SET-LOCAL-PREF-IXA import
+peer 2001:db8:ffac::255 enable
+peer 2001:db8:ffac::255 route-policy EXPORT-TO-UFINET export
 maximum load-balancing 2
 quit
 commit
