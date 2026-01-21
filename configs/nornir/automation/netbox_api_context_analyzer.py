@@ -29,35 +29,7 @@ class NetBoxContextAnalyzer:
             print(f"Error al acceder a {url}: {e}")
             return None
     
-    def simulate_prefix_list_context(self, prefix_list_rules_data):
-    """Simula el contexto de reglas de prefix list en renderizado."""
-    print("\n=== CONTEXTO DE PREFIX LIST RULES ===")
-    print("Cuando iteras sobre netbox_bgp.PrefixListRule.objects.all(), cada 'rule' tiene:")
-    
-    if not prefix_list_rules_
-        print("  No hay reglas de prefix list en los datos.")
-        return
-    
-    sample_rule = prefix_list_rules_data[0] if isinstance(prefix_list_rules_data, list) else prefix_list_rules_data
-    
-    rule_attrs = ['index', 'action', 'id']
-    for attr in rule_attrs:
-        if attr in sample_rule:
-            print(f"  {{ {{ rule.{attr} }} }} → {sample_rule[attr]}")
-    
-    # Relación con prefix list padre
-    if 'prefix_list' in sample_rule:
-        prefix_list_name = sample_rule['prefix_list']['name']
-        print(f"\n  Prefix List padre:")
-        print(f"    {{ {{ rule.prefix_list.name }} }} → {prefix_list_name}")
-    
-    # Prefijo (puede estar en prefix_custom o prefix)
-    if 'prefix_custom' in sample_rule and sample_rule['prefix_custom']:
-        print(f"\n  Prefijo:")
-        print(f"    {{ {{ rule.prefix_custom }} }} → {sample_rule['prefix_custom']}")
-    elif 'prefix' in sample_rule and sample_rule['prefix']:
-        print(f"    {{ {{ rule.prefix }} }} → {sample_rule['prefix']}")
-    
+        
     def get_device_with_related_data(self, device_id):
         """Obtiene un dispositivo con sus datos relacionados (interfaces, BGP sessions, etc.)."""
         # Obtener dispositivo básico
