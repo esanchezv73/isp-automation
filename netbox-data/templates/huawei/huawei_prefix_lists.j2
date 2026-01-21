@@ -1,0 +1,8 @@
+{# Prefix Lists IPv6 #}
+{% set processed_prefix_lists = [] %}
+{% for rule in netbox_bgp.PrefixListRule.objects.all() -%}
+{%- if rule.prefix_list.name not in processed_prefix_lists -%}
+{%- set _ = processed_prefix_lists.append(rule.prefix_list.name) -%}
+ip ipv6-prefix {{ rule.prefix_list.name }} index {{ rule.index }} {% if rule.action == "permit" %}permit{% else %}deny{% endif %} {{ rule.prefix_custom.ip }} {{ rule.prefix_custom.prefixlen }}
+{%- endif -%}
+{% endfor %}
