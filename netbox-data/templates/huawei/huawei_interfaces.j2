@@ -1,35 +1,29 @@
-{# Este template recibe una interfaz individual como contexto #}
-{% if intf.name %}
-interface {{ intf.name }}
-{% if intf.description %}
- description {{ intf.description }}
-{% endif %}
-
 {# =========================
-   Direcciones IPv4
+   IPv4
    ========================= #}
-{% set ipv4_addresses = intf.ip_addresses.all() | selectattr('family', 'equalto', 4) %}
+{% set ipv4_addresses = intf.ip_addresses.all()
+   | selectattr('family.value', 'equalto', 4)
+   | list %}
+
 {% for ip in ipv4_addresses %}
  ip address {{ ip.address.ip }} {{ ip.address.netmask }}
 {% endfor %}
 
 {# =========================
-   Direcciones IPv6
+   IPv6
    ========================= #}
-{% set ipv6_addresses = intf.ip_addresses.all() | selectattr('family', 'equalto', 6) %}
+{% set ipv6_addresses = intf.ip_addresses.all()
+   | selectattr('family.value', 'equalto', 6)
+   | list %}
 
-{# Solo habilitar IPv6 si:
-   - NO es Loopback
-   - Y existen direcciones IPv6
+{# Habilitar IPv6 solo si:
+   - hay IPv6
+   - no es Loopback
 #}
-{% if ipv6_addresses | length > 0 and not intf.name | lower | startswith('loop') %}
+{% if ipv6_addresses and not intf.name | lower | startswith('loop') %}
  ipv6 enable
 {% endif %}
 
 {% for ip in ipv6_addresses %}
  ipv6 address {{ ip.address }}
 {% endfor %}
-
- undo shutdown
-quit
-{% endif %}
