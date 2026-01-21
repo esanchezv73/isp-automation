@@ -1,6 +1,5 @@
 system-view
-    set hostname "{{ device.name }}"
-end
+    sysname {{ device.name }}
 
 {# --- Interfaces: iterar aquí --- #}
 {% for intf in device.interfaces.all() | selectattr('enabled') %}
