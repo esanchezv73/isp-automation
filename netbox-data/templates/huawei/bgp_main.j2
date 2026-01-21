@@ -1,5 +1,5 @@
 ! BGP Configuration for {{ device.name }}
-bgp {{ device.custom_field['local_asn'] }}
+  bgp {{ device.cf.['local_asn'] }}
   router-id {{ device.primary_ip4.address.ip }}
 {% for session in device.bgp_sessions.all() %}
   neighbor {{ session.remote_ip.address.ip }} remote-as {{ session.remote_as.asn }}
