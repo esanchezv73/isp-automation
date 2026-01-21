@@ -1,11 +1,31 @@
 {# Este template recibe una interfaz individual como contexto #}
 {% if intf.name %}
 interface {{ intf.name }}
-{% if intf.description %} description {{ intf.description }}{% endif %}
- ipv6 enable
+{% if intf.description %}
+ description {{ intf.description }}
+{% endif %}
 
-{# Direcciones IPv6 #}
+{# =========================
+   Direcciones IPv4
+   ========================= #}
+{% set ipv4_addresses = intf.ip_addresses.all() | selectattr('family', 'equalto', 4) %}
+{% for ip in ipv4_addresses %}
+ ip address {{ ip.address.ip }} {{ ip.address.netmask }}
+{% endfor %}
+
+{# =========================
+   Direcciones IPv6
+   ========================= #}
 {% set ipv6_addresses = intf.ip_addresses.all() | selectattr('family', 'equalto', 6) %}
+
+{# Solo habilitar IPv6 si:
+   - NO es Loopback
+   - Y existen direcciones IPv6
+#}
+{% if ipv6_addresses | length > 0 and not intf.name | lower | startswith('loop') %}
+ ipv6 enable
+{% endif %}
+
 {% for ip in ipv6_addresses %}
  ipv6 address {{ ip.address }}
 {% endfor %}
