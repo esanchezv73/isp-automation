@@ -1,11 +1,9 @@
-{# Configuración BGP principal #}
-{# Extraer ASN local de la primera sesión BGP #}
-{% set local_asn = device.bgp_sessions.all() | first | attr('local_as') | attr('asn') if device.bgp_sessions.all() | first else '65000' %}
-
-bgp {{ local_asn }}
- router-id {{ device.primary_ip4.address.ip if device.primary_ip4 else '0.0.0.0' }}
-
-{# Definición global de vecinos BGP #}
+! BGP Configuration for {{ device.name }}
+bgp {{ device.custom_field['local_asn'] }}
+  router-id {{ device.primary_ip4.address.ip }}
 {% for session in device.bgp_sessions.all() %}
- peer {{ session.remote_address.address }} as-number {{ session.remote_as.asn }}
+  neighbor {{ session.remote_ip.address.ip }} remote-as {{ session.remote_as.asn }}
+  description {{ session.description }}
+  ! Add more session parameters like activate, soft-reconfiguration, etc.
 {% endfor %}
+! End of BGP config
