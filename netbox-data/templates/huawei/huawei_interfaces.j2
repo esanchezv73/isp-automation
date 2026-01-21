@@ -1,15 +1,25 @@
 {# Este template recibe una interfaz individual como contexto #}
-{% if intf.name %}
+{% if intf and intf.name %}
+{% set is_loopback = intf.name | lower | regex_search('loopback') %}
+
 interface {{ intf.name }}
 {% if intf.description %} description {{ intf.description }}{% endif %}
+
+{# Manejo especial para LoopBack #}
+{% if is_loopback %}
+ {% set ipv4_addresses = intf.ip_addresses.all() | selectattr('family', 'equalto', 4) %}
+ {% for ip in ipv4_addresses %}
+ ip address {{ ip.address | ipaddr('address') }} {{ ip.address | ipaddr('netmask') }}
+ {% endfor %}
+{% else %}
+ {# Interfaces físicas o VLAN: configuración IPv6 #}
  ipv6 enable
-
-{# Direcciones IPv6 #}
-{% set ipv6_addresses = intf.ip_addresses.all() | selectattr('family', 'equalto', 6) %}
-{% for ip in ipv6_addresses %}
+ {% set ipv6_addresses = intf.ip_addresses.all() | selectattr('family', 'equalto', 6) %}
+ {% for ip in ipv6_addresses %}
  ipv6 address {{ ip.address }}
-{% endfor %}
-
+ {% endfor %}
  undo shutdown
+{% endif %}
+
 quit
 {% endif %}
