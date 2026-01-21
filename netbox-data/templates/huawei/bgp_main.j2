@@ -1,10 +1,11 @@
 ! BGP Configuration for {{ device.name }}
 bgp {{ device.cf.local_asn }}
- router-id {{ device.primary_ip4.address.split('/')[0] if device.primary_ip4 else '0.0.0.0' }}
+ router-id {{ device.primary_ip4.address.ip if device.primary_ip4 else '0.0.0.0' }}
 
-{% for session in bgp_sessions %}
+{% for session in nb_bgp_sessions %}
  peer {{ session.remote_address.address.split('/')[0] }} as-number {{ session.remote_as.asn }}
-{% if session.name %} description {{ session.name }}{% endif %}
+{% if session.description %} description {{ session.description }}{% endif %}
  ! Add more session parameters like activate, soft-reconfiguration, etc.
 {% endfor %}
 ! End of BGP config
+
