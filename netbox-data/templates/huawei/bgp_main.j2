@@ -6,7 +6,6 @@ bgp {{ device.cf.local_asn }}
 {% if session.device.name == device.name %}
  peer {{ session.remote_address.address.ip }} as-number {{ session.remote_as.asn }}
 {% if session.name %} description {{ session.name }}{% endif %}
- ! Add more session parameters like activate, soft-reconfiguration, etc.
 {% endif %}
 {% endfor %}
 ! End of BGP config
