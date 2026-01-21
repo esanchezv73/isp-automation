@@ -1,11 +1,11 @@
 {# Configuración BGP principal #}
-bgp {{ device.bgp_asn.asn }}
+{# Extraer ASN local de la primera sesión BGP #}
+{% set local_asn = device.bgp_sessions.all() | first | attr('local_as') | attr('asn') if device.bgp_sessions.all() | first else '65000' %}
+
+bgp {{ local_asn }}
  router-id {{ device.primary_ip4.address.ip if device.primary_ip4 else '0.0.0.0' }}
 
 {# Definición global de vecinos BGP #}
 {% for session in device.bgp_sessions.all() %}
- peer {{ session.remote_ip.address }} as-number {{ session.remote_asn.asn }}
+ peer {{ session.remote_address.address }} as-number {{ session.remote_as.asn }}
 {% endfor %}
-
-{# Placeholder para políticas y configuración IPv6 #}
-{# Aquí incluiremos subtemplates en pasos posteriores #}
