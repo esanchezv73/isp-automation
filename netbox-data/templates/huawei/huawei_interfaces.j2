@@ -3,20 +3,22 @@
 interface {{ intf.name }}
 {% if intf.description %} description {{ intf.description }}{% endif %}
  
-{# --- INICIO DE CORRECCIÓN PARA IPv4 --- #}
+{# Direcciones IPv4 #}
 {% set ipv4_addresses = intf.ip_addresses.all() | selectattr('family', 'equalto', 4) %}
 {% for ip in ipv4_addresses %}
  ip address {{ ip.address.ip }} {{ ip.address.netmask }}
 {% endfor %}
-{# --- FIN DE CORRECCIÓN PARA IPv4 --- #}
 
+{# Solo aplica IPv6 si la interfaz NO es Loopback #}
+{% if "LoopBack" not in intf.name %}
  ipv6 enable
 
-{# Direcciones IPv6 #}
-{% set ipv6_addresses = intf.ip_addresses.all() | selectattr('family', 'equalto', 6) %}
-{% for ip in ipv6_addresses %}
+ {# Direcciones IPv6 #}
+ {% set ipv6_addresses = intf.ip_addresses.all() | selectattr('family', 'equalto', 6) %}
+ {% for ip in ipv6_addresses %}
  ipv6 address {{ ip.address }}
-{% endfor %}
+ {% endfor %}
+{% endif %}
 
  undo shutdown
 quit
