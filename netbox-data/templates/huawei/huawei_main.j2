@@ -5,3 +5,9 @@ system-view
 {% for intf in device.interfaces.all() | selectattr('enabled') %}
 {% include 'netbox-data/templates/huawei/huawei_interfaces.j2' %}
 {% endfor %}
+
+{# --- Configuración BGP --- #}
+{% include 'netbox-data/templates/huawei/bgp_main.j2' %}
+
+commit
+return
