@@ -1,6 +1,4 @@
 
-{% for intf in device.interfaces.all() | selectattr('enabled', '==', True) %}
-{% if intf.name %}
 
 interface {{ intf.name }}
 {% if intf.description %} description {{ intf.description }}{% endif %}
