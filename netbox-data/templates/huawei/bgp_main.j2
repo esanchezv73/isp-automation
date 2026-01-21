@@ -1,0 +1,11 @@
+{# Configuración BGP principal #}
+bgp {{ device.bgp_asn.asn }}
+ router-id {{ device.primary_ip4.address.ip if device.primary_ip4 else '0.0.0.0' }}
+
+{# Definición global de vecinos BGP #}
+{% for session in device.bgp_sessions.all() %}
+ peer {{ session.remote_ip.address }} as-number {{ session.remote_asn.asn }}
+{% endfor %}
+
+{# Placeholder para políticas y configuración IPv6 #}
+{# Aquí incluiremos subtemplates en pasos posteriores #}
