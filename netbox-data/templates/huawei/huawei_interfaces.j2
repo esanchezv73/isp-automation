@@ -1,29 +1,27 @@
-{# =========================
-   IPv4
-   ========================= #}
-{% set ipv4_addresses = intf.ip_addresses.all()
-   | selectattr('family.value', 'equalto', 4)
-   | list %}
+{# Este template recibe una interfaz individual como contexto #}
+{% if intf and intf.name %}
+{% set is_loopback = 'loopback' in intf.name | lower %}
 
-{% for ip in ipv4_addresses %}
- ip address {{ ip.address.ip }} {{ ip.address.netmask }}
-{% endfor %}
+interface {{ intf.name }}
+{% if intf.description %} description {{ intf.description }}{% endif %}
 
-{# =========================
-   IPv6
-   ========================= #}
-{% set ipv6_addresses = intf.ip_addresses.all()
-   | selectattr('family.value', 'equalto', 6)
-   | list %}
-
-{# Habilitar IPv6 solo si:
-   - hay IPv6
-   - no es Loopback
-#}
-{% if ipv6_addresses and not intf.name | lower | startswith('loop') %}
+{# Manejo especial para LoopBack #}
+{% if is_loopback %}
+ {% set ipv4_addresses = intf.ip_addresses.all() | selectattr('family.value', 'equalto', 4) %}
+ {% for ip in ipv4_addresses %}
+ {% set ip_str = ip.address | string %}
+ {% set ip_parts = ip_str.split('/') %}
+ ip address {{ ip_parts[0] }} 255.255.255.255
+ {% endfor %}
+{% else %}
+ {# Interfaces físicas o VLAN: configuración IPv6 #}
  ipv6 enable
+ {% set ipv6_addresses = intf.ip_addresses.all() | selectattr('family.value', 'equalto', 6) %}
+ {% for ip in ipv6_addresses %}
+ ipv6 address {{ ip.address }}
+ {% endfor %}
+ undo shutdown
 {% endif %}
 
-{% for ip in ipv6_addresses %}
- ipv6 address {{ ip.address }}
-{% endfor %}
+quit
+{% endif %}
