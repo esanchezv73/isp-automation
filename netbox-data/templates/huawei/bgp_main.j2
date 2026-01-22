@@ -1,4 +1,3 @@
-! BGP Configuration for {{ device.name }}
 bgp {{ device.cf.local_asn }}
  router-id {{ device.primary_ip4.address.ip if device.primary_ip4 else '0.0.0.0' }}
 
@@ -8,5 +7,4 @@ bgp {{ device.cf.local_asn }}
 {% if session.name %} description {{ session.name }}{% endif %}
 {% endif %}
 {% endfor %}
-! End of BGP config
 
