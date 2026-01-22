@@ -7,8 +7,8 @@ system-view
 {% endfor %}
 
 {# --- Configuración BGP --- #}
+{% include 'netbox-data/templates/huawei/bgp_prefix_lists.j2' %}
+{% include 'netbox-data/templates/huawei/bgp_routing_policies.j2' %}
 {% include 'netbox-data/templates/huawei/bgp_main.j2' %}
-{% include 'netbox-data/templates/huawei/huawei_prefix_lists.j2' %}
-
 commit
 return
