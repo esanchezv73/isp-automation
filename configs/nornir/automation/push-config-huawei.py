@@ -14,7 +14,7 @@ DEVICE_ID = 3  # ¡Usamos ID directo para evitar ambigüedad!
 
 DEVICE = {
     "device_type": "huawei",
-    "host": "172.80.80.7",
+    "host": "172.90.90.7",
     "username": "admin",
     "password": "admin",
     "timeout": 10,
