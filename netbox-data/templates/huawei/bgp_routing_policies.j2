@@ -18,4 +18,7 @@ route-policy {{ rule.routing_policy.name }} {{ rule.action }} node {{ rule.index
   {% endif %}
  {% endfor %}
 {% endif %}
+{% if rule.cf.local_preference %}
+ apply local-preference {{ rule.cf.local_preference }}
+{% endif %}
 {% endfor %}
