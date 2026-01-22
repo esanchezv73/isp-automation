@@ -1,0 +1,21 @@
+{# Route Policies - soporte para IPv4 e IPv6 #}
+{% for rule in netbox_bgp.RoutingPolicyRule.objects.all() %}
+route-policy {{ rule.routing_policy.name }} {{ rule.action }} node {{ rule.index }}
+{% if rule.match_ipv6_address.exists() %}
+ {% for prefix_list in rule.match_ipv6_address.all() %}
+ if-match ipv6 address prefix-list {{ prefix_list.name }}
+ {% endfor %}
+{% elif rule.match_ip_address.exists() %}
+ {% for prefix_list in rule.match_ip_address.all() %}
+ if-match ip address prefix-list {{ prefix_list.name }}
+ {% endfor %}
+{% endif %}
+{% if rule.cf.apply_community %}
+ {% set target_community_name = rule.cf.apply_community %}
+ {% for community in netbox_bgp.Community.objects.all() %}
+  {% if community.name == target_community_name or community.value == target_community_name %}
+ apply community {{ community.value }}
+  {% endif %}
+ {% endfor %}
+{% endif %}
+{% endfor %}
