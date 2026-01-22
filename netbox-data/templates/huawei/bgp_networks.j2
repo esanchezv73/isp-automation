@@ -1,0 +1,4 @@
+{# Network statements for BGP - based on Prefix Lists #}
+{% for rule in netbox_bgp.PrefixListRule.objects.all() %}
+ network {{ rule.prefix_custom.ip }} {{ rule.prefix_custom.prefixlen }}
+{% endfor %}
