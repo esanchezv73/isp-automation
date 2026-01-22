@@ -91,7 +91,7 @@ topology:
       exec:
        - python3 -m pip config set global.break-system-packages true
        - chmod +x /root/nornir.sh
-       - chmod 644 /root/automation/ansible.cfg    
+       #- chmod 644 /root/automation/ansible.cfg    
        - bash /root/nornir.sh 
    
   links:
