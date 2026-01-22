@@ -1,0 +1,18 @@
+ipv6-family unicast
+ bestroute as-path-ignore
+{% for session in netbox_bgp.BGPSession.objects.all() %}
+{% if session.device.name == device.name %}
+ peer {{ session.remote_address.address.ip }} enable
+ {% if session.export_policies.exists() %}
+  {% for policy in session.export_policies.all() %}
+ peer {{ session.remote_address.address.ip }} route-policy {{ policy.name }} export
+  {% endfor %}
+ {% endif %}
+ peer {{ session.remote_address.address.ip }} advertise-community
+ {% if session.import_policies.exists() %}
+  {% for policy in session.import_policies.all() %}
+ peer {{ session.remote_address.address.ip }} route-policy {{ policy.name }} import
+  {% endfor %}
+ {% endif %}
+{% endif %}
+{% endfor %}
