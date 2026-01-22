@@ -3,6 +3,7 @@ ipv6-family unicast
 {% for session in netbox_bgp.BGPSession.objects.all() %}
 {% if session.device.name == device.name %}
  peer {{ session.remote_address.address.ip }} enable
+ Y
  {% if session.export_policies.exists() %}
   {% for policy in session.export_policies.all() %}
  peer {{ session.remote_address.address.ip }} route-policy {{ policy.name }} export
