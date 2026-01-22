@@ -4,7 +4,6 @@ bgp {{ device.cf.local_asn }}
 {% for session in netbox_bgp.BGPSession.objects.all() %}
 {% if session.device.name == device.name %}
  peer {{ session.remote_address.address.ip }} as-number {{ session.remote_as.asn }}
-{% if session.name %} description {{ session.name }}{% endif %}
 {% endif %}
 {% endfor %}
 
