@@ -21,5 +21,8 @@ route-policy {{ rule.routing_policy.name }} {{ rule.action }} node {{ rule.index
 {% if rule.cf.local_preference %}
  apply local-preference {{ rule.cf.local_preference }}
 {% endif %}
+{% if rule.cf.as_path_prepend_count and rule.cf.as_path_prepend_count > 0 %}
+ apply as-path {{ device.cf.local_asn }} {{ device.cf.local_asn }} additive
+{% endif %}
 quit
 {% endfor %}
