@@ -1,0 +1,10 @@
+{% for policy_name, policy_config in bgp_policies.items() %}
+route-policy {{ policy_name }} permit node 10
+{% if policy_config.as_path_prepend_count and policy_config.as_path_prepend_count > 0 %}
+ apply as-path {{ local_asn }} {{ local_asn }} additive
+{% endif %}
+{% if policy_config.local_preference %}
+ apply local-preference {{ policy_config.local_preference }}
+{% endif %}
+quit
+{% endfor %}
