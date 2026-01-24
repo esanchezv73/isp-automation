@@ -1,0 +1,31 @@
+stages:
+  - test
+  - deploy
+
+variables:
+  NETBOX_URL: "http://192.168.117.135:8000"
+  NETBOX_TOKEN: "c889397e6b09cfd1556378047213220b2c47b7e8"
+
+test_bgp_changes:
+  stage: test
+  script:
+    - echo "🧪 Ejecutando pruebas en laboratorio..."
+    - cd tests
+    - if [ -f Vagrantfile ]; then
+        vagrant up && python3 test_bgp_convergence.py && vagrant destroy -f
+      else
+        echo "⚠️  No hay laboratorio configurado, saltando pruebas..."
+      fi
+  only:
+    variables:
+      - $TRIGGERED_BY
+
+deploy_to_production:
+  stage: deploy
+  script:
+    - echo "🚀 Desplegando cambios BGP a producción..."
+    - python3 apply_bgp_policies.py
+  when: manual
+  only:
+    variables:
+      - $TRIGGERED_BY
