@@ -6,12 +6,12 @@ BGP Failover Engine - Automatización basada en latencia
 import requests
 import time
 import logging
-from typing import Dict, List
+from typing import Dict, Any
 
 # === Configuración ===
 NETBOX_URL = "http://192.168.117.135:8000"
 NETBOX_TOKEN = "c889397e6b09cfd1556378047213220b2c47b7e8"
-
+DRY_RUN = False
 # IDs de las reglas de políticas BGP (obtenidos de NetBox API)
 POLICY_RULE_IDS = {
     'EXPORT-TO-IXA': 1,
@@ -44,14 +44,33 @@ class BGPFailoverEngine:
         self.latency_history = {'IXA': [], 'UFINET': []}
     
     def measure_latency(self, provider: str) -> float:
-        """Mide la latencia hacia un proveedor"""
-        # En producción, usarías SNMP, ICMP, o APIs reales
-        # Aquí simulamos con valores
-        import random
-        if provider == "IXA":
-            return random.uniform(40, 50)  # Simular alta latencia
-        else:
-            return random.uniform(5, 10)   # Simular baja latencia
+        """Mide latencia real hacia los peers BGP"""
+        import subprocess
+        
+        # Direcciones IP reales de tus peers
+        PEER_IPS = {
+            'IXA': '2001:db8:ffaa::255',
+            'UFINET': '2001:db8:ffac::255'
+        }
+        
+        try:
+            peer_ip = PEER_IPS[provider]
+            result = subprocess.run(
+                ['ping6', '-c', '3', '-W', '2', peer_ip],
+                capture_output=True, text=True, timeout=5
+            )
+            
+            if result.returncode == 0:
+                # Extraer latencia promedio
+                for line in result.stdout.split('\n'):
+                    if 'avg' in line:
+                        avg_latency = line.split('/')[4]
+                        return float(avg_latency)
+                        
+        except Exception as e:
+            logging.error(f"Error midiendo latencia a {provider}: {e}")
+        
+        return float('inf')  # Si falla, retornar latencia infinita
     
     def get_average_latency(self, provider: str) -> float:
         """Calcula promedio móvil de latencia"""
@@ -85,31 +104,45 @@ class BGPFailoverEngine:
                 
         return current_primary_provider
     
-    def update_netbox_policy(self, rule_id: int, updates: Dict[str, str]):
+    def update_netbox_policy(self, rule_id: int, updates: Dict[str, Any]):
         """Actualiza los Custom Fields de una regla de política en NetBox"""
-        url = f"{NETBOX_URL}/api/plugins/bgp/routing-policy-rules/{rule_id}/"
         
-        # Obtener regla actual para preservar otros campos
+        if DRY_RUN:
+            logging.info(f"🧪 DRY RUN - Actualizaría regla {rule_id}: {updates}")
+            return
+        
+        url = f"{NETBOX_URL}/api/plugins/bgp/routing-policy-rule/{rule_id}/"
+        
+        # Obtener regla actual para preservar todos los campos obligatorios
         resp = self.session.get(url)
         resp.raise_for_status()
         current_data = resp.json()
         
-        # Preparar datos de actualización
+        # Crear payload completo con todos los campos requeridos
         update_data = {
             'routing_policy': current_data['routing_policy']['id'],
             'index': current_data['index'],
             'action': current_data['action'],
-            'cf': current_data['cf']  # Preservar Custom Fields existentes
+            'custom_fields': {}
         }
         
-        # Actualizar solo los campos especificados
+        # Copiar todos los custom fields existentes
+        for key, value in current_data['custom_fields'].items():
+            update_data['custom_fields'][key] = value
+        
+        # Actualizar solo los campos especificados (mantener tipos originales)
         for key, value in updates.items():
-            update_data['cf'][key] = str(value)
+            update_data['custom_fields'][key] = value  # Los valores ya vienen con tipo correcto
         
         # Enviar actualización
-        resp = self.session.patch(url, json=update_data)
-        resp.raise_for_status()
-        logging.info(f"✅ Actualizada regla {rule_id}: {updates}")
+        try:
+            resp = self.session.patch(url, json=update_data)
+            resp.raise_for_status()
+            logging.info(f"✅ Actualizada regla {rule_id}: {updates}")
+        except requests.exceptions.HTTPError as e:
+            logging.error(f"❌ Error HTTP al actualizar regla {rule_id}: {e}")
+            logging.error(f"❌ Respuesta del servidor: {resp.text}")
+            raise
     
     def switch_to_provider(self, new_provider: str):
         """Cambia la configuración BGP para usar un nuevo proveedor principal"""
@@ -123,15 +156,15 @@ class BGPFailoverEngine:
         
         if new_provider == "IXA":
             # IXA principal, UFINET backup
-            self.update_netbox_policy(POLICY_RULE_IDS['EXPORT-TO-IXA'], {'as_path_prepend_count': '0'})
-            self.update_netbox_policy(POLICY_RULE_IDS['EXPORT-TO-UFINET'], {'as_path_prepend_count': '2'})
+            self.update_netbox_policy(POLICY_RULE_IDS['EXPORT-TO-IXA'], {'as_path_prepend_count': 0})      # ← Entero
+            self.update_netbox_policy(POLICY_RULE_IDS['EXPORT-TO-UFINET'], {'as_path_prepend_count': 2})   # ← Entero
             self.update_netbox_policy(POLICY_RULE_IDS['SET-LOCAL-PREF-IXA'], {'local_preference': '200'})
             self.update_netbox_policy(POLICY_RULE_IDS['SET-LOCAL-PREF-UFINET'], {'local_preference': '100'})
             
         elif new_provider == "UFINET":
             # UFINET principal, IXA backup  
-            self.update_netbox_policy(POLICY_RULE_IDS['EXPORT-TO-IXA'], {'as_path_prepend_count': '2'})
-            self.update_netbox_policy(POLICY_RULE_IDS['EXPORT-TO-UFINET'], {'as_path_prepend_count': '0'})
+            self.update_netbox_policy(POLICY_RULE_IDS['EXPORT-TO-IXA'], {'as_path_prepend_count': 2})      # ← Entero
+            self.update_netbox_policy(POLICY_RULE_IDS['EXPORT-TO-UFINET'], {'as_path_prepend_count': 0})   # ← Entero
             self.update_netbox_policy(POLICY_RULE_IDS['SET-LOCAL-PREF-IXA'], {'local_preference': '100'})
             self.update_netbox_policy(POLICY_RULE_IDS['SET-LOCAL-PREF-UFINET'], {'local_preference': '200'})
         
