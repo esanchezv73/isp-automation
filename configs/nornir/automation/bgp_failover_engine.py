@@ -157,13 +157,13 @@ class BGPFailoverEngine:
         if new_provider == "IXA":
             # IXA principal, UFINET backup
             self.update_netbox_policy(POLICY_RULE_IDS['EXPORT-TO-IXA'], {'as_path_prepend_count': 0})      # ← Entero
-            self.update_netbox_policy(POLICY_RULE_IDS['EXPORT-TO-UFINET'], {'as_path_prepend_count': 2})   # ← Entero
+            self.update_netbox_policy(POLICY_RULE_IDS['EXPORT-TO-UFINET'], {'as_path_prepend_count': 3})   # ← Entero
             self.update_netbox_policy(POLICY_RULE_IDS['SET-LOCAL-PREF-IXA'], {'local_preference': '200'})
             self.update_netbox_policy(POLICY_RULE_IDS['SET-LOCAL-PREF-UFINET'], {'local_preference': '100'})
             
         elif new_provider == "UFINET":
             # UFINET principal, IXA backup  
-            self.update_netbox_policy(POLICY_RULE_IDS['EXPORT-TO-IXA'], {'as_path_prepend_count': 2})      # ← Entero
+            self.update_netbox_policy(POLICY_RULE_IDS['EXPORT-TO-IXA'], {'as_path_prepend_count': 3})      # ← Entero
             self.update_netbox_policy(POLICY_RULE_IDS['EXPORT-TO-UFINET'], {'as_path_prepend_count': 0})   # ← Entero
             self.update_netbox_policy(POLICY_RULE_IDS['SET-LOCAL-PREF-IXA'], {'local_preference': '100'})
             self.update_netbox_policy(POLICY_RULE_IDS['SET-LOCAL-PREF-UFINET'], {'local_preference': '200'})
