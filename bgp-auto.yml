@@ -91,8 +91,9 @@ topology:
       exec:
        - python3 -m pip config set global.break-system-packages true
        - chmod +x /root/nornir.sh
-       #- chmod 644 /root/automation/ansible.cfg    
-       - bash /root/nornir.sh 
+       - bash /root/nornir.sh    
+       - ip -6 address add 2001:db8:ca01::100/64 dev eth1 
+       - ip -6 route add default via 2001:db8:ca01::1
    
   links:
     - endpoints: ["rt-ixa:e1-1", "wan1:eth1"]
