@@ -72,34 +72,33 @@ class BGPFailoverEngine:
         
         return float('inf')  # Si falla, retornar latencia infinita
     
-    def get_average_latency(self, provider: str) -> float:
-        """Calcula promedio móvil de latencia"""
-        if not self.latency_history[provider]:
-            return self.measure_latency(provider)
-        
-        # Mantener solo últimas 5 mediciones
-        if len(self.latency_history[provider]) > 5:
-            self.latency_history[provider].pop(0)
-            
-        return sum(self.latency_history[provider]) / len(self.latency_history[provider])
-    
     def should_switch_provider(self) -> str:
         """Determina si se debe cambiar de proveedor"""
-        ixa_latency = self.get_average_latency("IXA")
-        ufinet_latency = self.get_average_latency("UFINET")
+        # 🔥 MEDIR LATENCIA FRESCA EN CADA CICLO 🔥
+        ixa_latency = self.measure_latency("IXA")
+        ufinet_latency = self.measure_latency("UFINET")
         
-        # Actualizar historial
+        # Actualizar historial para histeresis
         self.latency_history['IXA'].append(ixa_latency)
         self.latency_history['UFINET'].append(ufinet_latency)
         
+        # Mantener solo últimas 5 mediciones
+        for provider in ['IXA', 'UFINET']:
+            if len(self.latency_history[provider]) > 5:
+                self.latency_history[provider].pop(0)
+        
         logging.info(f"Latencia - IXA: {ixa_latency:.2f}ms, UFINET: {ufinet_latency:.2f}ms")
         
-        # Lógica de decisión con histeresis
+        # Lógica de decisión con histeresis (usar promedio móvil)
+        ixa_avg = sum(self.latency_history['IXA']) / len(self.latency_history['IXA'])
+        ufinet_avg = sum(self.latency_history['UFINET']) / len(self.latency_history['UFINET'])
+        
+        global current_primary_provider
         if current_primary_provider == "IXA":
-            if ufinet_latency < ixa_latency and ixa_latency > LATENCY_THRESHOLDS['warning']:
+            if ufinet_avg < ixa_avg and ixa_avg > LATENCY_THRESHOLDS['warning']:
                 return "UFINET"
         elif current_primary_provider == "UFINET":
-            if ixa_latency < ufinet_latency and ufinet_latency > LATENCY_THRESHOLDS['warning']:
+            if ixa_avg < ufinet_avg and ufinet_avg > LATENCY_THRESHOLDS['warning']:
                 return "IXA"
                 
         return current_primary_provider
