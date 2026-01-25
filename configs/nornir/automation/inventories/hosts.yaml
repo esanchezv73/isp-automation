@@ -1,7 +1,6 @@
 huawei-router:
   hostname: 172.90.90.7
-  platform: huawei
   username: admin
   password: admin
-  
-    local_asn: "65000"
+  groups:
+      - huawei
