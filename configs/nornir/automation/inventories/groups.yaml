@@ -1,1 +1,3 @@
-#vacio
+---
+huawei:
+    platform: huawei_vrp
