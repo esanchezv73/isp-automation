@@ -3,5 +3,5 @@ huawei-router:
   platform: huawei
   username: admin
   password: admin
-  data:
+  
     local_asn: "65000"
