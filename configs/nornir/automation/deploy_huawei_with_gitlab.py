@@ -40,7 +40,7 @@ class DeployHuaweiWithGitLab(Script):
                 os.chdir(temp_dir)
                 
                 # Clonar repositorio GitLab
-                GITLAB_REPO = "https://oauth2:TU_GITLAB_ACCESS_TOKEN@gitlab.com/tu-usuario/network-automation.git"
+                GITLAB_REPO = "https://oauth2:glpat-CVvH8t0HVofNLC3alBQokW86MQp1OmpycHliCw.01.121gw8jd2@gitlab.com/esanchezv73/network-automation.git"
                 subprocess.run(["git", "clone", GITLAB_REPO, "."], check=True, capture_output=True)
                 
                 # Crear directorio y guardar configuración
