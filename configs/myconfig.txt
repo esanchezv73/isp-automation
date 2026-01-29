@@ -24,6 +24,7 @@ quit
 route-policy EXPORT-TO-UFINET permit node 10
 if-match ipv6 address prefix-list CORPORATIVO
 apply community 65000:65003
+apply as-path 65000 65000 65000 additive
 quit
 route-policy SET-LOCAL-PREF-IXA permit node 10
 apply local-preference 200
@@ -37,7 +38,6 @@ peer 2001:db8:ffaa::255 as-number 65002
 peer 2001:db8:ffac::255 as-number 65003
 ipv6-family unicast
 network 2001:db8:ca01:: 64
-bestroute as-path-ignore
 peer 2001:db8:ffaa::255 enable
 y
 peer 2001:db8:ffaa::255 route-policy EXPORT-TO-IXA export
