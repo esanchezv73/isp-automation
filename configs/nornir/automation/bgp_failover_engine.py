@@ -194,7 +194,7 @@ def main():
     # Ejecutar continuamente cada 60 segundos
     while True:
         engine.run_cycle()
-        time.sleep(60)
+        time.sleep(30)
 
 if __name__ == "__main__":
     main()
