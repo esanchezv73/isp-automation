@@ -81,7 +81,25 @@ topology:
         - configs/crea-bridge.sh:/root/crea-bridge.sh
       exec:
         - chmod +x /root/crea-bridge.sh
-        - bash /root/crea-bridge.sh    
+        - bash /root/crea-bridge.sh   
+
+    wan-google:
+       kind: linux
+       image: docker.io/esanchezv/srvhttps:latest
+       binds:
+        - configs/crea-bridge.sh:/root/crea-bridge.sh
+      exec:
+        - chmod +x /root/crea-bridge.sh
+        - bash /root/crea-bridge.sh   
+
+    wan-cloudflare:
+       kind: linux
+       image: docker.io/esanchezv/srvhttps:latest
+       binds:
+        - configs/crea-bridge.sh:/root/crea-bridge.sh
+      exec:
+        - chmod +x /root/crea-bridge.sh
+        - bash /root/crea-bridge.sh   
 
     PC-corpo:
       kind: linux
@@ -115,5 +133,7 @@ topology:
     - endpoints: ["rt-ixa:e1-2", "switch-wan:eth1"]
     - endpoints: ["rt-ufinet:e1-2", "switch-wan:eth2"]
     - endpoints: ["srvweb:eth1", "switch-wan:eth3"]
-    - endpoints: ["rt-ufinet:e1-3", "srv-cloudflare:eth1"]
-    - endpoints: ["rt-ixa:e1-3", "srv-google:eth1"]
+    - endpoints: ["rt-ufinet:e1-3", "wan-cloudflare:eth1"]
+    - endpoints: ["wan-cloudflare:eth2", "srv-cloudflare:eth1"]
+    - endpoints: ["rt-ixa:e1-3", "wan-google:eth1"]
+    - endpoints: ["wan-google:eth2", "srv-google:eth1"]
