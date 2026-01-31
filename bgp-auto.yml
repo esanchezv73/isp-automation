@@ -65,13 +65,12 @@ topology:
           
     wan1:
       kind: linux
-      image: bprodoehl/wan-emulator:20230418
-      #mgmt-ipv4: 172.20.20.11
+      image: docker.io/esanchezv/srvhttps:latest
       binds:
         - configs/crea-bridge.sh:/root/crea-bridge.sh
       exec:
         - chmod +x /root/crea-bridge.sh
-        - bash /root/crea-bridge.sh    
+        - bash /root/crea-bridge.sh   
       
     wan2:
       kind: linux
