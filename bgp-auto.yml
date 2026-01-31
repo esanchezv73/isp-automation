@@ -83,18 +83,18 @@ topology:
         - bash /root/crea-bridge.sh   
 
     wan-google:
-       kind: linux
-       image: docker.io/esanchezv/srvhttps:latest
-       binds:
+      kind: linux
+      image: docker.io/esanchezv/srvhttps:latest
+      binds:
         - configs/crea-bridge.sh:/root/crea-bridge.sh
       exec:
         - chmod +x /root/crea-bridge.sh
         - bash /root/crea-bridge.sh   
 
     wan-cloudflare:
-       kind: linux
-       image: docker.io/esanchezv/srvhttps:latest
-       binds:
+      kind: linux
+      image: docker.io/esanchezv/srvhttps:latest
+      binds:
         - configs/crea-bridge.sh:/root/crea-bridge.sh
       exec:
         - chmod +x /root/crea-bridge.sh
