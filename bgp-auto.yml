@@ -40,7 +40,14 @@ topology:
         #- configs/web-server.html:/var/www/localhost/htdocs/index.html
        #exec:
          #- ip -6 route del default dev eth0
-            
+
+    srv-google:
+       kind: linux
+       image: docker.io/esanchezv/srvhttps:latest        
+
+    srv-cloudflare:
+       kind: linux
+       image: docker.io/esanchezv/srvhttps:latest           
     
     srlswitch:
       kind: nokia_srlinux
@@ -102,3 +109,5 @@ topology:
     - endpoints: ["rt-ixa:e1-2", "switch-wan:eth1"]
     - endpoints: ["rt-ufinet:e1-2", "switch-wan:eth2"]
     - endpoints: ["srvweb:eth1", "switch-wan:eth3"]
+    - endpoints: ["rt-ufinet:e1-3", "srv-google:eth1"]
+    - endpoints: ["rt-ixa:e1-3", "srv-cloudflare:eth1"]
