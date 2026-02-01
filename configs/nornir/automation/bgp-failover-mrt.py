@@ -2,6 +2,7 @@
 """
 BGP Failover Engine - Automatización basada en latencia con MTR
 Optimizado para usar mtr en lugar de ping para mediciones más precisas
+VERSIÓN CON INTEGRACIÓN DEL CALIBRADOR
 """
 
 import requests
@@ -12,7 +13,49 @@ import json
 from typing import Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 
-# === Configuración ===
+# === CONFIGURACIÓN CALIBRADA AUTOMÁTICAMENTE ===
+# Importar valores optimizados generados por network_calibrator.py
+try:
+    from bgp_failover_config import (
+        LATENCY_THRESHOLDS,
+        MTR_CONFIG,
+        MTR_DESTINATIONS,
+        PEER_IPS,
+        CYCLE_INTERVAL
+    )
+    print("✅ Configuración calibrada cargada exitosamente")
+except ImportError:
+    # Fallback: Usar configuración por defecto si no existe el archivo calibrado
+    print("⚠️ Usando configuración por defecto (ejecuta network_calibrator.py para optimizar)")
+    
+    MTR_CONFIG = {
+        'count': 5,
+        'timeout': 30,
+        'packet_size': 64,
+        'interval': 0.5
+    }
+    
+    MTR_DESTINATIONS = {
+        'IXA': '2001:db8:8888::100',
+        'UFINET': '2001:db8:4444::100'
+    }
+    
+    PEER_IPS = {
+        'IXA': '2001:db8:ffaa::255',
+        'UFINET': '2001:db8:ffac::255'
+    }
+    
+    LATENCY_THRESHOLDS = {
+        'peer_warning': 12,
+        'peer_critical': 25,
+        'dns_warning': 10,
+        'dns_critical': 30,
+        'switch_margin': 3
+    }
+    
+    CYCLE_INTERVAL = 30
+
+# === Configuración de NetBox ===
 NETBOX_URL = "http://192.168.117.135:8000"
 NETBOX_TOKEN = "c889397e6b09cfd1556378047213220b2c47b7e8"
 DRY_RUN = False
@@ -23,36 +66,6 @@ POLICY_RULE_IDS = {
     'EXPORT-TO-UFINET': 2, 
     'SET-LOCAL-PREF-IXA': 3,
     'SET-LOCAL-PREF-UFINET': 4
-}
-
-# Configuración de MTR
-MTR_CONFIG = {
-    'count': 5,   # Número de pruebas (reducido para velocidad)
-    'timeout': 30,  # Timeout en segundos (aumentado)
-    'packet_size': 64,
-    'interval': 0.5  # Intervalo entre paquetes (segundos)
-}
-
-# Destinos para MTR (DNS servers de prueba)
-MTR_DESTINATIONS = {
-    'IXA': '2001:db8:8888::100',
-    'UFINET': '2001:db8:4444::100'
-}
-
-# IPs de los peers BGP (count 2 en el reporte MTR)
-PEER_IPS = {
-    'IXA': '2001:db8:ffaa::255',
-    'UFINET': '2001:db8:ffac::255'
-}
-
-# Thresholds de latencia (ms) - Ajustados para esta red específica
-# Baseline: IXA ~5.9, UFINET ~6.0 (scores excelentes)
-LATENCY_THRESHOLDS = {
-    'peer_warning': 12,      # Tu red: 5-6ms normal → Warning si >12ms (2× normal)
-    'peer_critical': 25,     # Crítico si >25ms (4-5× normal)
-    'dns_warning': 10,       # Tu red: 3-4ms normal → Warning si >10ms (3× normal)
-    'dns_critical': 30,      # Crítico si >30ms (8× normal)
-    'switch_margin': 3       # Scores muy similares, margen pequeño para evitar flapping
 }
 
 # Estado actual
@@ -425,14 +438,15 @@ def main():
     engine = BGPFailoverEngine()
     logging.info("🚀 Iniciando motor de failover BGP con MTR...")
     logging.info(f"📍 Thresholds configurados: {LATENCY_THRESHOLDS}")
+    logging.info(f"⏱️ Ciclo de monitoreo: {CYCLE_INTERVAL} segundos")
     
-    # Ejecutar continuamente cada 30 segundos
+    # Ejecutar continuamente usando intervalo configurado
     cycle_count = 0
     while True:
         cycle_count += 1
         logging.info(f"\n{'='*80}\n🔄 Ciclo #{cycle_count}\n{'='*80}")
         engine.run_cycle()
-        time.sleep(30)
+        time.sleep(CYCLE_INTERVAL)  # ← Usa la variable importada
 
 
 if __name__ == "__main__":
