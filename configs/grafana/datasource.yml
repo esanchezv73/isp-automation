@@ -17,4 +17,4 @@ datasources:
       timeInterval: '30s'
       logMessageField: change_reason
       logLevelField: ''
-    editable: true
+    
