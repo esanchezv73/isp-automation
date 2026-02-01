@@ -10,6 +10,7 @@ datasources:
     url: http://172.90.90.9:9200  # Cambiar si Elasticsearch está en otra IP
     isDefault: false  # Hacer este el data source por defecto
     jsonData:
+      esVersion: 7.17.7
       index: 'bgp-failover-metrics'  # Índice sin patrón de fecha
       interval: None
       timeField: '@timestamp'
