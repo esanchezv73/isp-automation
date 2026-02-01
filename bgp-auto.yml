@@ -55,12 +55,12 @@ topology:
         - ip -6 address add 2001:db8:8888::100/64 dev eth1
         - ip -6 route add default via 2001:db8:8888::1
     
-    srlswitch:
-      kind: nokia_srlinux
+    #srlswitch:
+      #kind: nokia_srlinux
       #mgmt-ipv4: 172.80.80.5
-      image: ghcr.io/nokia/srlinux:24.10.1
-      type: ixrd3
-      startup-config: configs/srlswitch.cfg 
+      #image: ghcr.io/nokia/srlinux:24.10.1
+      #type: ixrd3
+      #startup-config: configs/srlswitch.cfg 
     
           
     wan1:
@@ -81,23 +81,16 @@ topology:
         - chmod +x /root/crea-bridge.sh
         - bash /root/crea-bridge.sh   
 
-    wan-google:
+    internet:
       kind: linux
       image: docker.io/esanchezv/srvhttps:latest
       binds:
-        - configs/crea-bridge.sh:/root/crea-bridge.sh
+        - configs/crea-bridge-inet.sh:/root/crea-bridge-inet.sh
       exec:
-        - chmod +x /root/crea-bridge.sh
-        - bash /root/crea-bridge.sh   
-
-    wan-cloudflare:
-      kind: linux
-      image: docker.io/esanchezv/srvhttps:latest
-      binds:
-        - configs/crea-bridge.sh:/root/crea-bridge.sh
-      exec:
-        - chmod +x /root/crea-bridge.sh
-        - bash /root/crea-bridge.sh   
+        - chmod +x /root/crea-bridge-inet.sh
+        - bash /root/crea-bridge-inet.sh   
+     
+    
 
     PC-corpo:
       kind: linux
@@ -128,10 +121,10 @@ topology:
     - endpoints: ["rt-core:eth3", "srlswitch:e1-1"]
     - endpoints: ["PC-corpo:eth1", "srlswitch:e1-2"]
     - endpoints: ["nornir:eth1", "srlswitch:e1-3"] 
-    - endpoints: ["rt-ixa:e1-2", "switch-wan:eth1"]
-    - endpoints: ["rt-ufinet:e1-2", "switch-wan:eth2"]
-    - endpoints: ["srvweb:eth1", "switch-wan:eth3"]
-    - endpoints: ["rt-ufinet:e1-3", "wan-cloudflare:eth1"]
-    - endpoints: ["wan-cloudflare:eth2", "srv-cloudflare:eth1"]
-    - endpoints: ["rt-ixa:e1-3", "wan-google:eth1"]
-    - endpoints: ["wan-google:eth2", "srv-google:eth1"]
+    - endpoints: ["rt-ixa:e1-2", "internet:eth1"]
+    - endpoints: ["rt-ufinet:e1-2", "internet:eth2"]
+    - endpoints: ["srvweb:eth1", "internet:eth3"]
+    - endpoints: ["rt-ufinet:e1-3", "internet:eth5"]
+    - endpoints: ["internet:eth7", "srv-cloudflare:eth1"]
+    - endpoints: ["rt-ixa:e1-3", "internet:eth4"]
+    - endpoints: ["internet:eth6", "srv-google:eth1"]
