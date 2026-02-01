@@ -1,0 +1,15 @@
+# config file version
+apiVersion: 1
+
+datasources:
+    
+  - name: BGP failover MTR
+    type: elasticsearch
+    access: proxy
+    url: http://172.90.90.9:9200
+    isDefault: false
+    jsonData:
+      index: '[mac-ipv6-]YYYY.MM.DD'
+      interval: Daily
+      timeField: '@timestamp'
+      logMessageField: message
