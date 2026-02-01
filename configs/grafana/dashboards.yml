@@ -6,7 +6,7 @@ providers:
     orgId: 1
     type: file
     updateIntervalSeconds: 30  # Actualizar cada 30 segundos
-    allowUiUpdates: true
+    allowUiUpdates: false
     options:
       path: /var/lib/grafana/dashboards
       
