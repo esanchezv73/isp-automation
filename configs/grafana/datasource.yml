@@ -15,5 +15,6 @@ datasources:
       timeField: '@timestamp'
       timeInterval: '30s'
       logMessageField: change_reason
+      logLevelField: ''
       
     
