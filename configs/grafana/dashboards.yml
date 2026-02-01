@@ -1,8 +1,7 @@
 apiVersion: 1
 
 providers:
-  
- - name: bgp-failover
+  - name: telemetry
     orgId: 1
     type: file
     updateIntervalSeconds: 30  # Actualizar cada 30 segundos
