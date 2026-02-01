@@ -119,6 +119,43 @@ topology:
        - bash /root/nornir.sh    
        #- ip -6 address add 2001:db8:ca01::100/64 dev eth1 
        #- ip -6 route add default via 2001:db8:ca01::1
+
+    grafana:
+      kind: linux
+      mgmt-ipv4: 172.90.90.43
+      image: grafana/grafana:12.0.2
+      binds:
+        
+        - configs/grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yaml:ro
+        - configs/grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yaml:ro
+        #- configs/grafana/dashboards:/var/lib/grafana/dashboards
+      ports:
+        - 3000:3000
+      env:
+        # GF_INSTALL_PLUGINS: "yesoreyeram-infinity-datasource"
+        # env vars to enable anonymous access
+        GF_ORG_ROLE: "Admin"
+        GF_ORG_NAME: "Main Org"
+        GF_AUTH_ANONYMOUS_ENABLED: "true"
+        GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+        GF_AUTH_ANONYMOUS: "true"
+        GF_AUTH_OAUTH_AUTO_LOGIN: "true"
+        
+     
+    elastic:
+      kind: linux
+      mgmt-ipv4: 172.90.90.9
+      image: docker.elastic.co/elasticsearch/elasticsearch:7.17.7
+      
+      env:
+        node.name: es01
+        discovery.type: single-node
+        #xpack.security.enabled: "true"
+        #xpack.security.audit.enabled: "true"
+        #xpack.security.authc.api_key.enabled: "true"
+        ES_JAVA_OPTS: "-Xms1g -Xmx1g"
+      ports:
+        - 9200:9200/tcp   
    
   links:
     - endpoints: ["rt-ixa:e1-1", "wan1:eth1"]
