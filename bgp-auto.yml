@@ -131,7 +131,7 @@ topology:
         
         - configs/grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yaml
         - configs/grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yaml
-        #- configs/grafana/dashboards:/var/lib/grafana/dashboards
+        - configs/grafana/dashboards:/var/lib/grafana/dashboards
       ports:
         - 3000:3000
       env:
