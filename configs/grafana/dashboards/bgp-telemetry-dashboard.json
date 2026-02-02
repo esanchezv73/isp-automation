@@ -1,375 +1,185 @@
 {
-  "dashboard": {
-    "title": "BGP Failover - Monitoring Dashboard",
-    "tags": ["bgp", "failover", "network"],
-    "timezone": "browser",
-    "schemaVersion": 38,
-    "version": 1,
-    "refresh": "30s",
-    "panels": [
+  "annotations": {
+    "list": [
       {
-        "title": "Current Primary Provider",
-        "type": "stat",
-        "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
-        "targets": [
-          {
-            "datasource": {
-              "type": "elasticsearch",
-              "uid": "${DS_BGP_FAILVER_METRICS}"
-            },
-            "query": "is_primary:true",
-            "metrics": [{"type": "count", "id": "1"}],
-            "bucketAggs": [
-              {
-                "type": "terms",
-                "field": "provider_name.keyword",
-                "id": "2"
-              }
-            ],
-            "timeField": "@timestamp"
-          }
-        ],
-        "options": {
-          "graphMode": "none",
-          "colorMode": "background",
-          "justifyMode": "center",
-          "textMode": "name"
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
         },
-        "fieldConfig": {
-          "defaults": {
-            "mappings": [],
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                {"value": null, "color": "green"}
-              ]
-            }
-          }
-        }
-      },
-      {
-        "title": "Provider Changes (Last Hour)",
-        "type": "stat",
-        "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
-        "targets": [
-          {
-            "datasource": {
-              "type": "elasticsearch",
-              "uid": "${DS_BGP_FAILVER_METRICS}"
-            },
-            "query": "provider_changed:true",
-            "metrics": [{"type": "count", "id": "1"}],
-            "timeField": "@timestamp"
-          }
-        ],
-        "options": {
-          "graphMode": "area",
-          "colorMode": "value"
-        },
-        "fieldConfig": {
-          "defaults": {
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                {"value": null, "color": "green"},
-                {"value": 1, "color": "yellow"},
-                {"value": 3, "color": "red"}
-              ]
-            }
-          }
-        }
-      },
-      {
-        "title": "IXA Score",
-        "type": "stat",
-        "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
-        "targets": [
-          {
-            "datasource": {
-              "type": "elasticsearch",
-              "uid": "${DS_BGP_FAILVER_METRICS}"
-            },
-            "query": "provider_name:IXA",
-            "metrics": [{"type": "avg", "field": "score", "id": "1"}],
-            "timeField": "@timestamp"
-          }
-        ],
-        "options": {
-          "graphMode": "area",
-          "colorMode": "value"
-        },
-        "fieldConfig": {
-          "defaults": {
-            "unit": "none",
-            "decimals": 2,
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                {"value": null, "color": "green"},
-                {"value": 20, "color": "yellow"},
-                {"value": 50, "color": "red"}
-              ]
-            }
-          }
-        }
-      },
-      {
-        "title": "UFINET Score",
-        "type": "stat",
-        "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
-        "targets": [
-          {
-            "datasource": {
-              "type": "elasticsearch",
-              "uid": "${DS_BGP_FAILVER_METRICS}"
-            },
-            "query": "provider_name:UFINET",
-            "metrics": [{"type": "avg", "field": "score", "id": "1"}],
-            "timeField": "@timestamp"
-          }
-        ],
-        "options": {
-          "graphMode": "area",
-          "colorMode": "value"
-        },
-        "fieldConfig": {
-          "defaults": {
-            "unit": "none",
-            "decimals": 2,
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                {"value": null, "color": "green"},
-                {"value": 20, "color": "yellow"},
-                {"value": 50, "color": "red"}
-              ]
-            }
-          }
-        }
-      },
-      {
-        "title": "Provider Scores Over Time",
-        "type": "timeseries",
-        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 4},
-        "targets": [
-          {
-            "datasource": {
-              "type": "elasticsearch",
-              "uid": "${DS_BGP_FAILVER_METRICS}"
-            },
-            "query": "*",
-            "metrics": [{"type": "avg", "field": "score", "id": "1"}],
-            "bucketAggs": [
-              {
-                "type": "terms",
-                "field": "provider_name.keyword",
-                "id": "2"
-              },
-              {
-                "type": "date_histogram",
-                "field": "@timestamp",
-                "id": "3"
-              }
-            ],
-            "timeField": "@timestamp"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "custom": {
-              "drawStyle": "line",
-              "lineInterpolation": "smooth",
-              "fillOpacity": 10
-            },
-            "unit": "none"
-          }
-        }
-      },
-      {
-        "title": "Peer Latency (ms)",
-        "type": "timeseries",
-        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
-        "targets": [
-          {
-            "datasource": {
-              "type": "elasticsearch",
-              "uid": "${DS_BGP_FAILVER_METRICS}"
-            },
-            "query": "*",
-            "metrics": [{"type": "avg", "field": "peer_latency_ms", "id": "1"}],
-            "bucketAggs": [
-              {
-                "type": "terms",
-                "field": "provider_name.keyword",
-                "id": "2"
-              },
-              {
-                "type": "date_histogram",
-                "field": "@timestamp",
-                "id": "3"
-              }
-            ],
-            "timeField": "@timestamp"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "unit": "ms",
-            "custom": {
-              "drawStyle": "line",
-              "fillOpacity": 20
-            }
-          }
-        }
-      },
-      {
-        "title": "DNS Latency (ms)",
-        "type": "timeseries",
-        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
-        "targets": [
-          {
-            "datasource": {
-              "type": "elasticsearch",
-              "uid": "${DS_BGP_FAILVER_METRICS}"
-            },
-            "query": "*",
-            "metrics": [{"type": "avg", "field": "dns_latency_ms", "id": "1"}],
-            "bucketAggs": [
-              {
-                "type": "terms",
-                "field": "provider_name.keyword",
-                "id": "2"
-              },
-              {
-                "type": "date_histogram",
-                "field": "@timestamp",
-                "id": "3"
-              }
-            ],
-            "timeField": "@timestamp"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "unit": "ms",
-            "custom": {
-              "drawStyle": "line",
-              "fillOpacity": 20
-            }
-          }
-        }
-      },
-      {
-        "title": "Packet Loss (%)",
-        "type": "timeseries",
-        "gridPos": {"h": 6, "w": 12, "x": 0, "y": 20},
-        "targets": [
-          {
-            "datasource": {
-              "type": "elasticsearch",
-              "uid": "${DS_BGP_FAILVER_METRICS}"
-            },
-            "query": "*",
-            "metrics": [{"type": "avg", "field": "peer_loss_pct", "id": "1"}],
-            "bucketAggs": [
-              {
-                "type": "terms",
-                "field": "provider_name.keyword",
-                "id": "2"
-              },
-              {
-                "type": "date_histogram",
-                "field": "@timestamp",
-                "id": "3"
-              }
-            ],
-            "timeField": "@timestamp"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "unit": "percent",
-            "custom": {
-              "drawStyle": "bars"
-            },
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                {"value": null, "color": "green"},
-                {"value": 1, "color": "yellow"},
-                {"value": 5, "color": "red"}
-              ]
-            }
-          }
-        }
-      },
-      {
-        "title": "Provider Health Status",
-        "type": "table",
-        "gridPos": {"h": 6, "w": 12, "x": 12, "y": 20},
-        "targets": [
-          {
-            "datasource": {
-              "type": "elasticsearch",
-              "uid": "${DS_BGP_FAILVER_METRICS}"
-            },
-            "query": "*",
-            "metrics": [
-              {"type": "top_hits", "field": "provider_name", "id": "1"},
-              {"type": "top_hits", "field": "is_healthy", "id": "2"},
-              {"type": "top_hits", "field": "is_primary", "id": "3"},
-              {"type": "top_hits", "field": "score", "id": "4"}
-            ],
-            "bucketAggs": [
-              {
-                "type": "terms",
-                "field": "provider_name.keyword",
-                "id": "5"
-              }
-            ],
-            "timeField": "@timestamp"
-          }
-        ],
-        "transformations": [
-          {
-            "id": "organize",
-            "options": {
-              "excludeByName": {},
-              "indexByName": {},
-              "renameByName": {
-                "provider_name": "Provider",
-                "is_healthy": "Healthy",
-                "is_primary": "Primary",
-                "score": "Score"
-              }
-            }
-          }
-        ]
-      },
-      {
-        "title": "Change History",
-        "type": "logs",
-        "gridPos": {"h": 6, "w": 24, "x": 0, "y": 26},
-        "targets": [
-          {
-            "datasource": {
-              "type": "elasticsearch",
-              "uid": "${DS_BGP_FAILVER_METRICS}"
-            },
-            "query": "provider_changed:true",
-            "timeField": "@timestamp"
-          }
-        ],
-        "options": {
-          "showLabels": false,
-          "showTime": true,
-          "wrapLogMessage": true,
-          "sortOrder": "Descending"
-        }
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
       }
-    ],
-    "templating": {
-      "list": []
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": 1,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "PA488E1FFA090842D"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.0.2",
+      "targets": [
+        {
+          "alias": "",
+          "bucketAggs": [],
+          "metrics": [
+            {
+              "id": "1",
+              "settings": {
+                "limit": "500"
+              },
+              "type": "logs"
+            }
+          ],
+          "query": "provider_name:UFINET",
+          "refId": "A",
+          "timeField": "@timestamp"
+        }
+      ],
+      "title": "MTR UFINET",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "PA488E1FFA090842D"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 3
+      },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.0.2",
+      "targets": [
+        {
+          "alias": "",
+          "bucketAggs": [],
+          "metrics": [
+            {
+              "id": "1",
+              "settings": {
+                "limit": "500"
+              },
+              "type": "logs"
+            }
+          ],
+          "query": "provider_name:IXA",
+          "refId": "A",
+          "timeField": "@timestamp"
+        }
+      ],
+      "title": "MTR Provider IXA",
+      "type": "stat"
     }
-  }
+  ],
+  "preload": false,
+  "refresh": "5s",
+  "schemaVersion": 41,
+  "tags": [],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-5m",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "BGP Failover Metrics",
+  "uid": "ce148371-300a-4f59-baa5-34ea3ef58581",
+  "version": 10
 }
