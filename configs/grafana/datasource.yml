@@ -2,21 +2,13 @@
 apiVersion: 1
 
 datasources:    
-    
-  # Nuevo data source - BGP Failover Metrics
   - name: BGP Failover Metrics
     type: elasticsearch
     access: proxy
-    url: http://172.90.90.9:9200  # Cambiar si Elasticsearch está en otra IP
-    isDefault: false  # Hacer este el data source por defecto
+    url: http://172.90.90.9:9200
+    isDefault: false
     jsonData:
-      index: 'bgp-failover-metrics'  # Índice sin patrón de fecha
-      interval: None
+      index: '[bgp-failover-]YYYY.MM.DD'
+      interval: Daily
       timeField: '@timestamp'
-      esVersion: 7.17.7
-      timeInterval: '30s'
       logMessageField: change_reason
-      logLevelField: ''
-    editable: true  
-      
-    
