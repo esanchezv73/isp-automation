@@ -180,6 +180,7 @@ class ElasticsearchClient:
                 "current_provider": cycle_data["current_provider"],
                 "provider_changed": cycle_data["provider_changed"],
                 "previous_provider": cycle_data.get("previous_provider"),
+                "new_provider": cycle_data.get("new_provider"),  # Nuevo campo
                 "change_reason": cycle_data["change_reason"]
             }
             
@@ -450,12 +451,16 @@ class BGPFailoverEngine:
             
             new_provider, reason, provider_scores = self.should_switch_provider()
             
-            # Datos globales del ciclo
+            # IMPORTANTE: Usar current_primary_provider ANTES de cambiar
+            provider_will_change = new_provider != current_primary_provider
+            
+            # Datos globales del ciclo - usar el provider ACTUAL (antes del cambio)
             cycle_data = {
                 "cycle": self.cycle_count,
-                "current_provider": current_primary_provider,
-                "provider_changed": new_provider != current_primary_provider,
-                "previous_provider": self.last_provider if new_provider != current_primary_provider else None,
+                "current_provider": current_primary_provider,  # Estado ANTES del cambio
+                "provider_changed": provider_will_change,
+                "previous_provider": self.last_provider if provider_will_change else None,
+                "new_provider": new_provider if provider_will_change else None,  # A dónde va a cambiar
                 "change_reason": reason
             }
             
@@ -466,7 +471,7 @@ class BGPFailoverEngine:
                 all_metrics[provider] = {
                     "score": round(provider_scores[provider]['score'], 2),
                     "is_healthy": provider_scores[provider]['is_healthy'],
-                    "is_primary": provider == current_primary_provider,
+                    "is_primary": provider == current_primary_provider,  # Estado ACTUAL
                     "peer_latency_ms": round(metrics.peer_avg, 2),
                     "peer_jitter_ms": round(metrics.peer_stddev, 2),
                     "peer_loss_pct": round(metrics.peer_loss, 2),
@@ -476,10 +481,11 @@ class BGPFailoverEngine:
                     "ip_version": f"IPv{IP_VERSIONS.get(provider, '?')}"
                 }
             
-            # Enviar UN SOLO documento con todo
+            # Enviar métricas ANTES de cambiar el provider
             self.es_client.send_unified_metrics(cycle_data, all_metrics)
             
-            if new_provider != current_primary_provider:
+            # AHORA SÍ cambiar el provider si es necesario
+            if provider_will_change:
                 self.switch_to_provider(new_provider, reason)
             else:
                 logging.info(f"✓ Sin cambios - {reason}")
