@@ -54,11 +54,11 @@ except ImportError:
     PROVIDERS = ['IXA', 'UFINET']
     
     LATENCY_THRESHOLDS = {
-        'peer_warning': 12,
-        'peer_critical': 25,
-        'dns_warning': 10,
-        'dns_critical': 30,
-        'switch_margin': 3
+        'peer_warning': 30,
+        'peer_critical': 60,
+        'dns_warning': 40,
+        'dns_critical': 70,
+        'switch_margin': 5
     }
     
     CYCLE_INTERVAL = 30
