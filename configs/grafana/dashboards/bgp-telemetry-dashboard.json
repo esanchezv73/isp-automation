@@ -64,6 +64,30 @@
                 "value": 222
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "To"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 60
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "cycle"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 67
+              }
+            ]
           }
         ]
       },
@@ -145,8 +169,9 @@
             "renameByName": {
               "@timestamp": "Time",
               "change_reason": "Reason",
-              "current_provider": "To",
-              "previous_provider": "From"
+              "current_provider": "Current",
+              "new_provider": "Next",
+              "previous_provider": "Previous"
             }
           }
         }
@@ -171,8 +196,12 @@
                 "color": "green"
               },
               {
+                "color": "#EAB839",
+                "value": 30
+              },
+              {
                 "color": "red",
-                "value": 80
+                "value": 50
               }
             ]
           }
@@ -254,8 +283,12 @@
                 "color": "green"
               },
               {
+                "color": "#EAB839",
+                "value": 30
+              },
+              {
                 "color": "red",
-                "value": 80
+                "value": 50
               }
             ]
           }
@@ -620,8 +653,8 @@
     "to": "now"
   },
   "timepicker": {},
-  "timezone": "browser",
+  "timezone": "utc",
   "title": "BGP Telemetry",
   "uid": "aa9764fd-e2a8-4e3e-a1bd-e22b116c7165",
-  "version": 3
+  "version": 8
 }
