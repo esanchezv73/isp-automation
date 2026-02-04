@@ -54,11 +54,11 @@ except ImportError:
     PROVIDERS = ['IXA', 'UFINET']
     
     LATENCY_THRESHOLDS = {
-        'peer_warning': 40,
-        'peer_critical': 80,
-        'dns_warning': 50,
-        'dns_critical': 100,
-        'switch_margin': 10
+        'peer_warning': 12,
+        'peer_critical': 25,
+        'dns_warning': 10,
+        'dns_critical': 30,
+        'switch_margin': 3
     }
     
     CYCLE_INTERVAL = 30
@@ -205,7 +205,7 @@ class ElasticsearchClient:
             return
         
         try:
-            timestamp = datetime.utcnow().isoformat()
+            timestamp = datetime.now(timezone.utc).isoformat()
             
             # Documento unificado - datos globales
             doc = {
@@ -238,7 +238,7 @@ class ElasticsearchClient:
                 doc[f"{prefix}_has_packet_loss"] = metrics["has_packet_loss"]
             
             # Índice diario
-            fecha = datetime.utcnow().strftime("%Y.%m.%d")
+            fecha = datetime.now(timezone.utc).strftime("%Y.%m.%d")
             index_name = f"{self.index_prefix}-{fecha}"
             url = f"{self.url}/{index_name}/_doc"
             
