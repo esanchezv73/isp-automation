@@ -58,7 +58,7 @@ except ImportError:
         'peer_critical': 80,
         'dns_warning': 50,
         'dns_critical': 100,
-        'switch_margin': 5
+        'switch_margin': 10
     }
     
     CYCLE_INTERVAL = 30
