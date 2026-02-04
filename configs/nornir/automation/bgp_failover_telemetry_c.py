@@ -54,10 +54,10 @@ except ImportError:
     PROVIDERS = ['IXA', 'UFINET']
     
     LATENCY_THRESHOLDS = {
-        'peer_warning': 30,
-        'peer_critical': 60,
-        'dns_warning': 40,
-        'dns_critical': 70,
+        'peer_warning': 40,
+        'peer_critical': 80,
+        'dns_warning': 50,
+        'dns_critical': 100,
         'switch_margin': 5
     }
     
@@ -80,6 +80,17 @@ ELASTICSEARCH_ENABLED = True
 ELASTICSEARCH_URL = "http://172.90.90.9:9200"
 ELASTICSEARCH_INDEX = "bgp-failover"  # Se agregará la fecha automáticamente
 
+# === CONFIGURACIÓN DE DEGRADACIÓN SOSTENIDA ===
+# Número de ciclos consecutivos que un provider debe estar mejor para justificar cambio
+SUSTAINED_DEGRADATION_CYCLES = 3  # Cambiar solo si persiste por 3 ciclos (90 segundos con ciclo de 30s)
+# Con CYCLE_INTERVAL=30s y SUSTAINED=3 → requiere 90 segundos de degradación sostenida
+# Con CYCLE_INTERVAL=30s y SUSTAINED=5 → requiere 150 segundos (2.5 minutos)
+
+# Umbral de pérdida de paquetes para cambio inmediato (sin esperar ciclos)
+IMMEDIATE_FAILOVER_PACKET_LOSS = 20.0  # 20% de pérdida → cambio inmediato
+# Solo PÉRDIDA DE PAQUETES causa cambio inmediato
+# Latencia crítica requiere degradación sostenida (puede ser spike momentáneo)
+
 # Estado actual
 current_primary_provider = "IXA"  # Default
 
@@ -96,13 +107,36 @@ class LatencyMetrics:
     
     @property
     def is_healthy(self) -> bool:
-        """Determina si el enlace está saludable"""
+        """
+        Determina si el enlace tiene PÉRDIDA CRÍTICA DE PAQUETES.
+        Solo pérdida de paquetes ≥20% causa cambio inmediato.
+        Latencia crítica requiere degradación sostenida (puede ser spike momentáneo).
+        """
         return (
-            self.peer_loss == 0.0 and 
-            self.dns_loss == 0.0 and
-            self.peer_avg < LATENCY_THRESHOLDS['peer_critical'] and
-            self.dns_avg < LATENCY_THRESHOLDS['dns_critical']
+            self.peer_loss < IMMEDIATE_FAILOVER_PACKET_LOSS and 
+            self.dns_loss < IMMEDIATE_FAILOVER_PACKET_LOSS
         )
+    
+    @property
+    def has_latency_warning(self) -> bool:
+        """Indica si hay latencia en nivel de advertencia (para observabilidad)"""
+        return (
+            self.peer_avg >= LATENCY_THRESHOLDS['peer_warning'] or
+            self.dns_avg >= LATENCY_THRESHOLDS['dns_warning']
+        )
+    
+    @property
+    def has_latency_critical(self) -> bool:
+        """Indica si hay latencia crítica (para observabilidad)"""
+        return (
+            self.peer_avg >= LATENCY_THRESHOLDS['peer_critical'] or
+            self.dns_avg >= LATENCY_THRESHOLDS['dns_critical']
+        )
+    
+    @property
+    def has_packet_loss(self) -> bool:
+        """Indica si hay pérdida de paquetes (cualquier cantidad)"""
+        return self.peer_loss > 0.0 or self.dns_loss > 0.0
     
     @property
     def quality_score(self) -> float:
@@ -198,6 +232,10 @@ class ElasticsearchClient:
                 doc[f"{prefix}_dns_jitter_ms"] = metrics["dns_jitter_ms"]
                 doc[f"{prefix}_dns_loss_pct"] = metrics["dns_loss_pct"]
                 doc[f"{prefix}_ip_version"] = metrics["ip_version"]
+                # Campos de observabilidad para alertas en Grafana
+                doc[f"{prefix}_has_latency_warning"] = metrics["has_latency_warning"]
+                doc[f"{prefix}_has_latency_critical"] = metrics["has_latency_critical"]
+                doc[f"{prefix}_has_packet_loss"] = metrics["has_packet_loss"]
             
             # Índice diario
             fecha = datetime.utcnow().strftime("%Y.%m.%d")
@@ -239,6 +277,10 @@ class BGPFailoverEngine:
         # Contadores
         self.cycle_count = 0
         self.last_provider = current_primary_provider
+        
+        # Tracking de degradación sostenida
+        self.degradation_counter = 0  # Ciclos consecutivos donde otro provider es mejor
+        self.better_provider_candidate = None  # Qué provider es mejor
         
     def run_mtr(self, destination: str, ip_version: str) -> Optional[Dict[str, Any]]:
         """Ejecuta MTR hacia un destino"""
@@ -326,7 +368,10 @@ class BGPFailoverEngine:
         return self.extract_metrics(mtr_report, provider)
     
     def should_switch_provider(self) -> Tuple[str, str, Dict[str, Dict]]:
-        """Determina si cambiar de proveedor y retorna todas las métricas"""
+        """
+        Determina si cambiar de proveedor basado en degradación sostenida.
+        Requiere que el problema persista por SUSTAINED_DEGRADATION_CYCLES ciclos.
+        """
         provider_scores = {}
         
         for provider in PROVIDERS:
@@ -365,15 +410,54 @@ class BGPFailoverEngine:
         
         score_diff = current_score - best_score
         
+        # Lógica de degradación sostenida
         if best_provider != current_primary_provider:
+            # El current NO es el mejor
+            
+            # Verificar si es el mismo candidato que venía siendo mejor
+            if self.better_provider_candidate == best_provider:
+                self.degradation_counter += 1
+                logging.info(
+                    f"⏱️ Degradación sostenida: {self.degradation_counter}/{SUSTAINED_DEGRADATION_CYCLES} ciclos "
+                    f"({best_provider} mejor que {current_primary_provider} por {score_diff:.2f} puntos)"
+                )
+            else:
+                # Cambió el candidato, reiniciar contador
+                self.degradation_counter = 1
+                self.better_provider_candidate = best_provider
+                logging.info(
+                    f"🔄 Nuevo candidato: {best_provider} (contador reiniciado 1/{SUSTAINED_DEGRADATION_CYCLES})"
+                )
+            
+            # Verificar si cumple condiciones para cambiar
             if score_diff > LATENCY_THRESHOLDS['switch_margin']:
+                # Caso 1: Provider actual NO saludable (pérdida de paquetes crítica) → Cambio inmediato
                 if not provider_scores[current_primary_provider]['is_healthy']:
-                    reason = f"{current_primary_provider} no saludable"
-                else:
-                    reason = f"{best_provider} mejor por {score_diff:.2f} puntos"
-                return best_provider, reason, provider_scores
-        
-        return current_primary_provider, "Condiciones estables", provider_scores
+                    metrics_current = provider_scores[current_primary_provider]['metrics']
+                    peer_loss = metrics_current.peer_loss
+                    dns_loss = metrics_current.dns_loss
+                    self.degradation_counter = 0  # Reiniciar contador
+                    self.better_provider_candidate = None
+                    return best_provider, f"{current_primary_provider} pérdida crítica de paquetes (peer: {peer_loss:.1f}%, dns: {dns_loss:.1f}%) - cambio inmediato", provider_scores
+                
+                # Caso 2: Degradación sostenida alcanzada
+                if self.degradation_counter >= SUSTAINED_DEGRADATION_CYCLES:
+                    self.degradation_counter = 0  # Reiniciar contador
+                    self.better_provider_candidate = None
+                    return best_provider, f"{best_provider} mejor por {score_diff:.2f} puntos ({SUSTAINED_DEGRADATION_CYCLES} ciclos)", provider_scores
+                
+                # Caso 3: Aún no alcanza el umbral de sostenimiento
+                return current_primary_provider, f"Evaluando cambio a {best_provider} ({self.degradation_counter}/{SUSTAINED_DEGRADATION_CYCLES} ciclos)", provider_scores
+            else:
+                # Diferencia no supera margin
+                return current_primary_provider, f"Diferencia insuficiente ({score_diff:.2f} < {LATENCY_THRESHOLDS['switch_margin']})", provider_scores
+        else:
+            # El current SÍ es el mejor → Reiniciar contador
+            if self.degradation_counter > 0:
+                logging.info(f"✅ {current_primary_provider} vuelve a ser el mejor, reiniciando contador de degradación")
+            self.degradation_counter = 0
+            self.better_provider_candidate = None
+            return current_primary_provider, "Condiciones estables", provider_scores
     
     def update_netbox_policy(self, rule_id: int, updates: Dict[str, Any]):
         """Actualiza regla en NetBox"""
@@ -472,13 +556,18 @@ class BGPFailoverEngine:
                     "score": round(provider_scores[provider]['score'], 2),
                     "is_healthy": provider_scores[provider]['is_healthy'],
                     "is_primary": provider == current_primary_provider,  # Estado ACTUAL
+                    # Métricas base
                     "peer_latency_ms": round(metrics.peer_avg, 2),
                     "peer_jitter_ms": round(metrics.peer_stddev, 2),
                     "peer_loss_pct": round(metrics.peer_loss, 2),
                     "dns_latency_ms": round(metrics.dns_avg, 2),
                     "dns_jitter_ms": round(metrics.dns_stddev, 2),
                     "dns_loss_pct": round(metrics.dns_loss, 2),
-                    "ip_version": f"IPv{IP_VERSIONS.get(provider, '?')}"
+                    "ip_version": f"IPv{IP_VERSIONS.get(provider, '?')}",
+                    # Campos de observabilidad (para Grafana)
+                    "has_latency_warning": metrics.has_latency_warning,
+                    "has_latency_critical": metrics.has_latency_critical,
+                    "has_packet_loss": metrics.has_packet_loss
                 }
             
             # Enviar métricas ANTES de cambiar el provider
