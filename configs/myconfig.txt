@@ -52,5 +52,7 @@ peer 2001:DB8:FFAC::255 advertise-community
 peer 2001:db8:ffac::255 route-policy SET-LOCAL-PREF-UFINET import
 commit
 quit
+quit
+quit
 
 
