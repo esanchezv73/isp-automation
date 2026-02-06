@@ -66,41 +66,41 @@ topology:
       #startup-config: configs/srlswitch.cfg 
     
           
-    wan1:
-      kind: linux
-      image: docker.io/esanchezv/srvhttps:latest
-      binds:
-        - configs/crea-bridge.sh:/root/crea-bridge.sh
-      exec:
-        - chmod +x /root/crea-bridge.sh
-        - bash /root/crea-bridge.sh   
+    #wan1:
+      #kind: linux
+      #image: docker.io/esanchezv/srvhttps:latest
+      #binds:
+        #- configs/crea-bridge.sh:/root/crea-bridge.sh
+      #exec:
+        #- chmod +x /root/crea-bridge.sh
+        #- bash /root/crea-bridge.sh   
       
-    wan2:
-      kind: linux
-      image: docker.io/esanchezv/srvhttps:latest
-      binds:
-        - configs/crea-bridge.sh:/root/crea-bridge.sh
-      exec:
-        - chmod +x /root/crea-bridge.sh
-        - bash /root/crea-bridge.sh   
+    #wan2:
+      #kind: linux
+      #image: docker.io/esanchezv/srvhttps:latest
+      #binds:
+        #- configs/crea-bridge.sh:/root/crea-bridge.sh
+      #exec:
+        #- chmod +x /root/crea-bridge.sh
+        #- bash /root/crea-bridge.sh   
 
-    wan-google:
-      kind: linux
-      image: docker.io/esanchezv/srvhttps:latest
-      binds:
-        - configs/crea-bridge.sh:/root/crea-bridge.sh
-      exec:
-        - chmod +x /root/crea-bridge.sh
-        - bash /root/crea-bridge.sh   
+    #wan-google:
+      #kind: linux
+      #image: docker.io/esanchezv/srvhttps:latest
+      #binds:
+        #- configs/crea-bridge.sh:/root/crea-bridge.sh
+      #exec:
+        #- chmod +x /root/crea-bridge.sh
+        #- bash /root/crea-bridge.sh   
 
-    wan-cloudflare:
-      kind: linux
-      image: docker.io/esanchezv/srvhttps:latest
-      binds:
-        - configs/crea-bridge.sh:/root/crea-bridge.sh
-      exec:
-        - chmod +x /root/crea-bridge.sh
-        - bash /root/crea-bridge.sh   
+    #wan-cloudflare:
+      #kind: linux
+      #image: docker.io/esanchezv/srvhttps:latest
+      #binds:
+        #- configs/crea-bridge.sh:/root/crea-bridge.sh
+      #exec:
+        #- chmod +x /root/crea-bridge.sh
+        #- bash /root/crea-bridge.sh   
 
     PC-corpo:
       kind: linux
@@ -161,20 +161,20 @@ topology:
         - 9200:9200/tcp   
    
   links:
-    - endpoints: ["rt-ixa:e1-1", "wan1:eth1"]
-    - endpoints: ["rt-ufinet:e1-1", "wan2:eth1"]
-    - endpoints: ["wan1:eth2", "rt-core:eth1"]
-    - endpoints: ["wan2:eth2", "rt-core:eth2"]
+    - endpoints: ["rt-ixa:e1-1", "rt-core:eth1"]
+    - endpoints: ["rt-ufinet:e1-1", "rt-core:eth2"]
+    #- endpoints: ["wan1:eth2", "rt-core:eth1"]
+    #- endpoints: ["wan2:eth2", "rt-core:eth2"]
     - endpoints: ["rt-core:eth3", "srlswitch:eth1"]
     - endpoints: ["PC-corpo:eth1", "srlswitch:eth2"]
     - endpoints: ["nornir:eth1", "srlswitch:eth3"] 
     - endpoints: ["rt-ixa:e1-2", "switch-wan:eth1"]
     - endpoints: ["rt-ufinet:e1-2", "switch-wan:eth2"]
     - endpoints: ["srvweb:eth1", "switch-wan:eth3"]
-    - endpoints: ["rt-ufinet:e1-3", "wan-cloudflare:eth1"]
-    - endpoints: ["wan-cloudflare:eth2", "srv-cloudflare:eth1"]
-    - endpoints: ["rt-ixa:e1-3", "wan-google:eth1"]
-    - endpoints: ["wan-google:eth2", "srv-google:eth1"]
+    - endpoints: ["rt-ufinet:e1-3", "srv-cloudflare:eth1"]
+    #- endpoints: ["wan-cloudflare:eth2", "srv-cloudflare:eth1"]
+    - endpoints: ["rt-ixa:e1-3", "srv-google:eth1"]
+    #- endpoints: ["wan-google:eth2", "srv-google:eth1"]
      
 
    
