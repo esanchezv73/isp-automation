@@ -12,3 +12,10 @@ pip install nornir-netbox
 sleep 1
 pip install nornir-scrapli
 sleep 1
+curl -s https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.deb.sh > gitlab-runner-install.sh
+chmod +x gitlab-runner-install.sh
+sleep 2
+os=ubuntu dist=jammy ./gitlab-runner-install.sh
+sleep 3
+apt-get install -y gitlab-runner
+sleep 5
