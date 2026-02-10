@@ -56,9 +56,9 @@ except ImportError:
     LATENCY_THRESHOLDS = {
         'peer_warning': 12,
         'peer_critical': 25,
-        'dns_warning': 10,
+        'dns_warning': 15,
         'dns_critical': 30,
-        'switch_margin': 3
+        'switch_margin': 5
     }
     
     CYCLE_INTERVAL = 30
