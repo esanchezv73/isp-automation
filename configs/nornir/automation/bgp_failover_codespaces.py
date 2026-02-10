@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+    #!/usr/bin/env python3
 """
 BGP Failover Engine con Telemetría a Elasticsearch
 Versión con UN documento unificado por ciclo (no anidado)
@@ -261,7 +261,7 @@ class ElasticsearchClient:
 class BGPFailoverEngine:
     def __init__(self):
         self.headers = {
-            "Authorization": f"Token {NETBOX_TOKEN}",
+            "Authorization": f"Bearer nbt_Xdvyq51lR10O.{NETBOX_TOKEN}",
             "Content-Type": "application/json",
             "Accept": "application/json"
         }
