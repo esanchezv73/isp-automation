@@ -1,4 +1,4 @@
-    #!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 BGP Failover Engine con Telemetría a Elasticsearch
 Versión con UN documento unificado por ciclo (no anidado)
@@ -54,11 +54,11 @@ except ImportError:
     PROVIDERS = ['IXA', 'UFINET']
     
     LATENCY_THRESHOLDS = {
-        'peer_warning': 20,
-        'peer_critical': 40,
-        'dns_warning': 30,
-        'dns_critical': 60,
-        'switch_margin': 5
+        'peer_warning': 12,
+        'peer_critical': 25,
+        'dns_warning': 10,
+        'dns_critical': 30,
+        'switch_margin': 3
     }
     
     CYCLE_INTERVAL = 30
@@ -313,7 +313,19 @@ class BGPFailoverEngine:
             return None
     
     def extract_metrics(self, mtr_report: Dict[str, Any], provider: str) -> Optional[LatencyMetrics]:
-        """Extrae métricas del reporte MTR"""
+        """
+        Extrae métricas del reporte MTR.
+        
+        IMPORTANTE: Según la documentación de MTR, la pérdida de paquetes
+        en hops intermedios puede ser causada por rate-limiting de respuestas
+        ICMP, NO por pérdida real de paquetes. Solo la pérdida en el destino
+        final (DNS) representa pérdida end-to-end real.
+        
+        Regla MTR: "Unless packet loss is seen on every hop between a given 
+        hop and the end of the trace, it is not a problem."
+        
+        Por tanto, usamos la pérdida del destino DNS para evitar falsos positivos.
+        """
         try:
             hubs = mtr_report['report']['hubs']
             peer_ip = PEER_IPS[provider]
@@ -331,11 +343,15 @@ class BGPFailoverEngine:
                 logging.warning(f"No se encontraron hops para {provider}")
                 return None
             
+            # FIX MTR: Solo usar pérdida del destino final (DNS)
+            # La pérdida en el peer puede ser rate-limiting ICMP (falso positivo)
+            dns_loss = float(dns_hop.get('Loss%', 100.0))
+            
             metrics = LatencyMetrics(
                 peer_avg=float(peer_hop.get('Avg', float('inf'))),
-                peer_loss=float(peer_hop.get('Loss%', 100.0)),
+                peer_loss=dns_loss,  # ← FIX: Usar pérdida del DNS, no del peer
                 dns_avg=float(dns_hop.get('Avg', float('inf'))),
-                dns_loss=float(dns_hop.get('Loss%', 100.0)),
+                dns_loss=dns_loss,
                 peer_stddev=float(peer_hop.get('StDev', 0.0)),
                 dns_stddev=float(dns_hop.get('StDev', 0.0))
             )
