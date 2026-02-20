@@ -19,19 +19,19 @@ quit
 ipv6 route-static 2001:db8:8888::100 128 2001:db8:ffaa::255
 ipv6 route-static 2001:db8:4444::100 128 2001:db8:ffac::255
 ip ipv6-prefix CORPORATIVO index 10 permit 2001:db8:ca01:: 64
-route-policy EXPORT-TO-IXA permit node 10
+route-policy EXPORT-TO-PROVIDER1 permit node 10
 if-match ipv6 address prefix-list CORPORATIVO
 apply community 65000:65002
 quit
-route-policy EXPORT-TO-UFINET permit node 10
+route-policy EXPORT-TO-PROVIDER2 permit node 10
 if-match ipv6 address prefix-list CORPORATIVO
 apply community 65000:65003
 apply as-path 65000 65000 65000 additive
 quit
-route-policy SET-LOCAL-PREF-IXA permit node 10
+route-policy SET-LOCAL-PREF-PROVIDER1 permit node 10
 apply local-preference 200
 quit
-route-policy SET-LOCAL-PREF-UFINET permit node 10
+route-policy SET-LOCAL-PREF-PROVIDER2 permit node 10
 apply local-preference 100
 quit
 bgp 65000
@@ -42,14 +42,14 @@ ipv6-family unicast
 network 2001:db8:ca01:: 64
 peer 2001:db8:ffaa::255 enable
 y
-peer 2001:db8:ffaa::255 route-policy EXPORT-TO-IXA export
+peer 2001:db8:ffaa::255 route-policy EXPORT-TO-PROVIDER1 export
 peer 2001:db8:ffaa::255 advertise-community
-peer 2001:db8:ffaa::255 route-policy SET-LOCAL-PREF-IXA import
+peer 2001:db8:ffaa::255 route-policy SET-LOCAL-PREF-PROVIDER1 import
 peer 2001:db8:ffac::255 enable
 y
-peer 2001:db8:ffac::255 route-policy EXPORT-TO-UFINET export
+peer 2001:db8:ffac::255 route-policy EXPORT-TO-PROVIDER2 export
 peer 2001:DB8:FFAC::255 advertise-community
-peer 2001:db8:ffac::255 route-policy SET-LOCAL-PREF-UFINET import
+peer 2001:db8:ffac::255 route-policy SET-LOCAL-PREF-PROVIDER2 import
 commit
 quit
 quit
