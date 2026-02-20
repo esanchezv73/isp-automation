@@ -88,6 +88,18 @@
                 "value": 67
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Causa"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 242
+              }
+            ]
           }
         ]
       },
@@ -154,6 +166,32 @@
               "ixa_peer_latency_ms": true,
               "ixa_peer_loss_pct": true,
               "ixa_score": true,
+              "provider1_dns_jitter_ms": true,
+              "provider1_dns_latency_ms": true,
+              "provider1_dns_loss_pct": true,
+              "provider1_has_latency_critical": true,
+              "provider1_has_latency_warning": true,
+              "provider1_has_packet_loss": true,
+              "provider1_ip_version": true,
+              "provider1_is_healthy": true,
+              "provider1_is_primary": true,
+              "provider1_peer_jitter_ms": true,
+              "provider1_peer_latency_ms": true,
+              "provider1_peer_loss_pct": true,
+              "provider1_score": true,
+              "provider2_dns_jitter_ms": true,
+              "provider2_dns_latency_ms": true,
+              "provider2_dns_loss_pct": true,
+              "provider2_has_latency_critical": true,
+              "provider2_has_latency_warning": true,
+              "provider2_has_packet_loss": true,
+              "provider2_ip_version": true,
+              "provider2_is_healthy": true,
+              "provider2_is_primary": true,
+              "provider2_peer_jitter_ms": true,
+              "provider2_peer_latency_ms": true,
+              "provider2_peer_loss_pct": true,
+              "provider2_score": true,
               "provider_changed": true,
               "sort": true,
               "ufinet_dns_jitter_ms": true,
@@ -174,10 +212,11 @@
             "indexByName": {},
             "renameByName": {
               "@timestamp": "Time",
-              "change_reason": "Reason",
-              "current_provider": "Current",
-              "new_provider": "Next",
-              "previous_provider": "Previous"
+              "change_reason": "Causa",
+              "current_provider": "Actual",
+              "cycle": "Ciclo",
+              "new_provider": "Próximo",
+              "previous_provider": "Anterior"
             }
           }
         }
@@ -662,5 +701,5 @@
   "timezone": "utc",
   "title": "BGP Telemetry",
   "uid": "aa9764fd-e2a8-4e3e-a1bd-e22b116c7165",
-  "version": 5
+  "version": 7
 }
