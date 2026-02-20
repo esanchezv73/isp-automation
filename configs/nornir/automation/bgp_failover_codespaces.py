@@ -37,8 +37,8 @@ except ImportError:
     }
     
     MTR_DESTINATIONS = {
-        'IXA': '2001:db8:8888::100',
-        'UFINET': '2001:db8:4444::100'
+        'PROVIDER1': '2001:db8:8888::100',
+        'PROVIDER2': '2001:db8:4444::100'
     }
     
     PEER_IPS = {
