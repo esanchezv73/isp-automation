@@ -42,16 +42,16 @@ except ImportError:
     }
     
     PEER_IPS = {
-        'IXA': '2001:db8:ffaa::255',
-        'UFINET': '2001:db8:ffac::255'
+        'PROVIDER1': '2001:db8:ffaa::255',
+        'PROVIDER2': '2001:db8:ffac::255'
     }
     
     IP_VERSIONS = {
-        'IXA': '6',
-        'UFINET': '6'
+        'PROVIDER1': '6',
+        'PROVIDER2': '6'
     }
     
-    PROVIDERS = ['IXA', 'UFINET']
+    PROVIDERS = ['PROVIDER1', 'PROVIDER2']
     
     LATENCY_THRESHOLDS = {
         'peer_warning': 12,
@@ -64,10 +64,10 @@ except ImportError:
     CYCLE_INTERVAL = 30
     
     POLICY_RULE_IDS = {
-        'EXPORT-TO-IXA': 1,
-        'EXPORT-TO-UFINET': 2,
-        'SET-LOCAL-PREF-IXA': 3,
-        'SET-LOCAL-PREF-UFINET': 4
+        'EXPORT-TO-PROVIDER1': 1,
+        'EXPORT-TO-PROVIDER2': 2,
+        'SET-LOCAL-PREF-PROVIDER1': 3,
+        'SET-LOCAL-PREF-PROVIDER2': 4
     }
 
 # === Configuración de NetBox ===
@@ -188,15 +188,15 @@ class ElasticsearchClient:
         {
           "@timestamp": "2026-02-03T02:00:00",
           "cycle": 1,
-          "current_provider": "IXA",
+          "current_provider": "PROVIDER1",
           "provider_changed": false,
           "change_reason": "Condiciones estables",
-          "ixa_score": 6.72,
-          "ixa_is_primary": true,
-          "ixa_peer_latency_ms": 6.33,
-          "ufinet_score": 10.43,
-          "ufinet_is_primary": false,
-          "ufinet_peer_latency_ms": 4.60,
+          "provider1_score": 6.72,
+          "provider1_is_primary": true,
+          "provider1_peer_latency_ms": 6.33,
+          "provider2_score": 10.43,
+          "provider2_is_primary": false,
+          "provider2_peer_latency_ms": 4.60,
           ...
         }
         """
