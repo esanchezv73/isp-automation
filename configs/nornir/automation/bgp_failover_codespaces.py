@@ -92,7 +92,7 @@ IMMEDIATE_FAILOVER_PACKET_LOSS = 20.0  # 20% de pérdida → cambio inmediato
 # Latencia crítica requiere degradación sostenida (puede ser spike momentáneo)
 
 # Estado actual
-current_primary_provider = "IXA"  # Default
+current_primary_provider = "PROVIDER1"  # Default
 
 
 @dataclass
@@ -182,7 +182,7 @@ class ElasticsearchClient:
     def send_unified_metrics(self, cycle_data: Dict[str, Any], all_providers_metrics: Dict[str, Dict]):
         """
         Envía UN SOLO documento por ciclo con métricas de todos los providers.
-        Formato plano: ixa_score, ufinet_score, etc.
+        Formato plano: provider1_score, provider2_score, etc.
         
         Ejemplo de documento:
         {
