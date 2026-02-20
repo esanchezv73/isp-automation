@@ -6,19 +6,19 @@ mgmt:
 topology:
   nodes:
 
-    rt-ixa:
+    rt-provider1:
       kind: nokia_srlinux
       #mgmt-ipv4: 172.80.80.5
       image: ghcr.io/nokia/srlinux:24.10.1
       type: ixrd3
-      startup-config: configs/rt-ixa.cfg 
+      startup-config: configs/rt-prov1.cfg 
 
-    rt-ufinet:
+    rt-provider2:
       kind: nokia_srlinux
       #mgmt-ipv4: 172.80.80.5
       image: ghcr.io/nokia/srlinux:24.10.1
       type: ixrd3
-      startup-config: configs/rt-ufinet.cfg 
+      startup-config: configs/rt-prov2.cfg 
 
     rt-core:
       kind: huawei_vrp
@@ -161,19 +161,19 @@ topology:
         - 9200:9200/tcp   
    
   links:
-    - endpoints: ["rt-ixa:e1-1", "rt-core:eth1"]
-    - endpoints: ["rt-ufinet:e1-1", "rt-core:eth2"]
+    - endpoints: ["rt-provider1:e1-1", "rt-core:eth1"]
+    - endpoints: ["rt-provider2:e1-1", "rt-core:eth2"]
     #- endpoints: ["wan1:eth2", "rt-core:eth1"]
     #- endpoints: ["wan2:eth2", "rt-core:eth2"]
     - endpoints: ["rt-core:eth3", "switch-agr:eth1"]
     - endpoints: ["PC-corpo:eth1", "switch-agr:eth2"]
     - endpoints: ["nornir:eth1", "switch-agr:eth3"] 
-    - endpoints: ["rt-ixa:e1-2", "switch-wan:eth1"]
-    - endpoints: ["rt-ufinet:e1-2", "switch-wan:eth2"]
+    - endpoints: ["rt-provider1:e1-2", "switch-wan:eth1"]
+    - endpoints: ["rt-provider2:e1-2", "switch-wan:eth2"]
     - endpoints: ["srvweb:eth1", "switch-wan:eth3"]
-    - endpoints: ["rt-ufinet:e1-3", "srv-cloudflare:eth1"]
+    - endpoints: ["rt-provider2:e1-3", "srv-cloudflare:eth1"]
     #- endpoints: ["wan-cloudflare:eth2", "srv-cloudflare:eth1"]
-    - endpoints: ["rt-ixa:e1-3", "srv-google:eth1"]
+    - endpoints: ["rt-provider1:e1-3", "srv-google:eth1"]
     #- endpoints: ["wan-google:eth2", "srv-google:eth1"]
      
 
