@@ -37,42 +37,42 @@ except ImportError:
     }
     
     MTR_DESTINATIONS = {
-        'IXA': '2001:db8:8888::100',
-        'UFINET': '2001:db8:4444::100'
+        'PROVIDER1': '2001:db8:8888::100',
+        'PROVIDER2': '2001:db8:4444::100'
     }
     
     PEER_IPS = {
-        'IXA': '2001:db8:ffaa::255',
-        'UFINET': '2001:db8:ffac::255'
+        'PROVIDER1': '2001:db8:ffaa::255',
+        'PROVIDER2': '2001:db8:ffac::255'
     }
     
     IP_VERSIONS = {
-        'IXA': '6',
-        'UFINET': '6'
+        'PROVIDER1': '6',
+        'PROVIDER2': '6'
     }
     
-    PROVIDERS = ['IXA', 'UFINET']
+    PROVIDERS = ['PROVIDER1', 'PROVIDER2']
     
     LATENCY_THRESHOLDS = {
         'peer_warning': 12,
         'peer_critical': 25,
-        'dns_warning': 10,
+        'dns_warning': 15,
         'dns_critical': 30,
-        'switch_margin': 3
+        'switch_margin': 5
     }
     
     CYCLE_INTERVAL = 30
     
     POLICY_RULE_IDS = {
-        'EXPORT-TO-IXA': 1,
-        'EXPORT-TO-UFINET': 2,
-        'SET-LOCAL-PREF-IXA': 3,
-        'SET-LOCAL-PREF-UFINET': 4
+        'EXPORT-TO-PROVIDER1': 1,
+        'EXPORT-TO-PROVIDER2': 2,
+        'SET-LOCAL-PREF-PROVIDER1': 3,
+        'SET-LOCAL-PREF-PROVIDER2': 4
     }
 
 # === Configuración de NetBox ===
-NETBOX_URL = "http://192.168.117.135:8000"
-NETBOX_TOKEN = "c889397e6b09cfd1556378047213220b2c47b7e8"
+NETBOX_URL = "http://192.168.0.140:8000"
+NETBOX_TOKEN = "rDbitCHC2V3fQy2Ksmr1pRuagb7pCc2qXCYz7qEp"
 DRY_RUN = True
 
 # === CONFIGURACIÓN DE ELASTICSEARCH ===
@@ -92,7 +92,7 @@ IMMEDIATE_FAILOVER_PACKET_LOSS = 20.0  # 20% de pérdida → cambio inmediato
 # Latencia crítica requiere degradación sostenida (puede ser spike momentáneo)
 
 # Estado actual
-current_primary_provider = "IXA"  # Default
+current_primary_provider = "PROVIDER1"  # Default
 
 
 @dataclass
@@ -182,21 +182,21 @@ class ElasticsearchClient:
     def send_unified_metrics(self, cycle_data: Dict[str, Any], all_providers_metrics: Dict[str, Dict]):
         """
         Envía UN SOLO documento por ciclo con métricas de todos los providers.
-        Formato plano: ixa_score, ufinet_score, etc.
+        Formato plano: provider1_score, provider2_score, etc.
         
         Ejemplo de documento:
         {
           "@timestamp": "2026-02-03T02:00:00",
           "cycle": 1,
-          "current_provider": "IXA",
+          "current_provider": "PROVIDER1",
           "provider_changed": false,
           "change_reason": "Condiciones estables",
-          "ixa_score": 6.72,
-          "ixa_is_primary": true,
-          "ixa_peer_latency_ms": 6.33,
-          "ufinet_score": 10.43,
-          "ufinet_is_primary": false,
-          "ufinet_peer_latency_ms": 4.60,
+          "provider1_score": 6.72,
+          "provider1_is_primary": true,
+          "provider1_peer_latency_ms": 6.33,
+          "provider2_score": 10.43,
+          "provider2_is_primary": false,
+          "provider2_peer_latency_ms": 4.60,
           ...
         }
         """
@@ -261,7 +261,7 @@ class ElasticsearchClient:
 class BGPFailoverEngine:
     def __init__(self):
         self.headers = {
-            "Authorization": f"Token {NETBOX_TOKEN}",
+            "Authorization": f"Bearer nbt_8gWOf9dUSS7v.{NETBOX_TOKEN}",
             "Content-Type": "application/json",
             "Accept": "application/json"
         }
@@ -313,7 +313,19 @@ class BGPFailoverEngine:
             return None
     
     def extract_metrics(self, mtr_report: Dict[str, Any], provider: str) -> Optional[LatencyMetrics]:
-        """Extrae métricas del reporte MTR"""
+        """
+        Extrae métricas del reporte MTR.
+        
+        IMPORTANTE: Según la documentación de MTR, la pérdida de paquetes
+        en hops intermedios puede ser causada por rate-limiting de respuestas
+        ICMP, NO por pérdida real de paquetes. Solo la pérdida en el destino
+        final (DNS) representa pérdida end-to-end real.
+        
+        Regla MTR: "Unless packet loss is seen on every hop between a given 
+        hop and the end of the trace, it is not a problem."
+        
+        Por tanto, usamos la pérdida del destino DNS para evitar falsos positivos.
+        """
         try:
             hubs = mtr_report['report']['hubs']
             peer_ip = PEER_IPS[provider]
@@ -331,11 +343,15 @@ class BGPFailoverEngine:
                 logging.warning(f"No se encontraron hops para {provider}")
                 return None
             
+            # FIX MTR: Solo usar pérdida del destino final (DNS)
+            # La pérdida en el peer puede ser rate-limiting ICMP (falso positivo)
+            dns_loss = float(dns_hop.get('Loss%', 100.0))
+            
             metrics = LatencyMetrics(
                 peer_avg=float(peer_hop.get('Avg', float('inf'))),
-                peer_loss=float(peer_hop.get('Loss%', 100.0)),
+                peer_loss=dns_loss,  # ← FIX: Usar pérdida del DNS, no del peer
                 dns_avg=float(dns_hop.get('Avg', float('inf'))),
-                dns_loss=float(dns_hop.get('Loss%', 100.0)),
+                dns_loss=dns_loss,
                 peer_stddev=float(peer_hop.get('StDev', 0.0)),
                 dns_stddev=float(dns_hop.get('StDev', 0.0))
             )
