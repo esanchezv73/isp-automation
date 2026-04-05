@@ -60,43 +60,6 @@ topology:
        type: L2
       
     
-          
-    #wan1:
-      #kind: linux
-      #image: docker.io/esanchezv/srvhttps:latest
-      #binds:
-        #- configs/crea-bridge.sh:/root/crea-bridge.sh
-      #exec:
-        #- chmod +x /root/crea-bridge.sh
-        #- bash /root/crea-bridge.sh   
-      
-    #wan2:
-      #kind: linux
-      #image: docker.io/esanchezv/srvhttps:latest
-      #binds:
-        #- configs/crea-bridge.sh:/root/crea-bridge.sh
-      #exec:
-        #- chmod +x /root/crea-bridge.sh
-        #- bash /root/crea-bridge.sh   
-
-    #wan-google:
-      #kind: linux
-      #image: docker.io/esanchezv/srvhttps:latest
-      #binds:
-        #- configs/crea-bridge.sh:/root/crea-bridge.sh
-      #exec:
-        #- chmod +x /root/crea-bridge.sh
-        #- bash /root/crea-bridge.sh   
-
-    #wan-cloudflare:
-      #kind: linux
-      #image: docker.io/esanchezv/srvhttps:latest
-      #binds:
-        #- configs/crea-bridge.sh:/root/crea-bridge.sh
-      #exec:
-        #- chmod +x /root/crea-bridge.sh
-        #- bash /root/crea-bridge.sh   
-
     PC-corpo:
       kind: linux
       image: docker.io/esanchezv/kaliipv6:latest
@@ -130,8 +93,6 @@ topology:
       ports:
         - 3000:3000
       env:
-        # GF_INSTALL_PLUGINS: "yesoreyeram-infinity-datasource"
-        # env vars to enable anonymous access
         GF_ORG_ROLE: "Admin"
         GF_ORG_NAME: "Main Org"
         GF_AUTH_ANONYMOUS_ENABLED: "true"
@@ -158,8 +119,6 @@ topology:
   links:
     - endpoints: ["rt-provider1:e1-1", "rt-core:eth1"]
     - endpoints: ["rt-provider2:e1-1", "rt-core:eth2"]
-    #- endpoints: ["wan1:eth2", "rt-core:eth1"]
-    #- endpoints: ["wan2:eth2", "rt-core:eth2"]
     - endpoints: ["rt-core:eth3", "switch-agr:eth1"]
     - endpoints: ["PC-corpo:eth1", "switch-agr:eth2"]
     - endpoints: ["nornir:eth1", "switch-agr:eth3"] 
@@ -167,9 +126,8 @@ topology:
     - endpoints: ["rt-provider2:e1-2", "switch-wan:eth2"]
     - endpoints: ["srvweb:eth1", "switch-wan:eth3"]
     - endpoints: ["rt-provider2:e1-3", "srv-cloudflare:eth1"]
-    #- endpoints: ["wan-cloudflare:eth2", "srv-cloudflare:eth1"]
     - endpoints: ["rt-provider1:e1-3", "srv-google:eth1"]
-    #- endpoints: ["wan-google:eth2", "srv-google:eth1"]
+   
      
 
    
