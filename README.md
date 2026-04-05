@@ -1,47 +1,39 @@
-# Containerlab Lab: Automation & Telemetry for BGP Routing Policies
+# 🚀 Containerlab Laboratory: BGP Routing Policies Automation & Telemetry
 
-## Overview
-
-This lab simulates an ISP network environment with two WAN links (`Provider1` and `Provider2`). It deploys an **Automation Framework** for updating BGP routing policies and a **Telemetry Stack** for real-time observability of link quality to the providers. The proposed solution enables automatic failover of BGP routing policies based on network quality metrics.
+> A simulated ISP network environment with automated BGP policy failover based on real-time link quality metrics.
 
 ---
 
-## Solution Description
+## 📋 Summary
 
-### Automation Framework
+This laboratory simulates an Internet Service Provider (ISP) network environment with two WAN uplinks (**Provider1** and **Provider2**). It deploys:
 
-| Component | Description |
-|-----------|-------------|
-| **NetBox Node** | Single Source of Truth for network infrastructure. Models BGP policies using custom fields. Provides RESTful API for external integration and Webhooks to trigger automation events. <br/>*Source: [NetBox Labs](https://netboxlabs.com/)* |
-| **GitLab CI/CD** | Automated pipeline for BGP policy configuration changes. GitLab Runner executes configuration changes. <br/>*Source: [GitLab](https://gitlab.com/)* |
-| **Nornir Node** | Multi-vendor, multi-platform automation task orchestration. GitLab Runner registered here for Huawei core router access. <br/>*Source: [Nornir Docs](https://nornir.readthedocs.io/en/latest/)* |
+- 🔧 An **Automation Framework** for dynamic BGP routing policy updates
+- 📊 A **Telemetry Stack** for real-time observability of link quality with upstream providers
 
-### Telemetry Stack
-
-| Component | Description |
-|-----------|-------------|
-| **MTR (Matt's Traceroute)** | Link diagnostics for BGP peers — monitors latency, jitter, and packet loss. Integrated with BGP failover script. <br/>*Source: [MTR on GitHub](https://github.com/traviscross/mtr)* |
-| **Elasticsearch** | Storage and automatic indexing of telemetry events sent by the BGP failover script. <br/>*Source: [Elasticsearch](https://www.elastic.co/elasticsearch)* |
-| **Grafana** | Dynamic visualization of latency metrics to BGP peers and link change tracking. Uses Elasticsearch as datasource. <br/>*Source: [Grafana](https://grafana.com/)* |
+✅ **Key Benefit**: The proposed solution enables **automatic BGP routing policy failover** driven by network quality metrics (latency, jitter, packet loss).
 
 ---
 
-## Lab Architecture
+## 🏗️ Proposed Solution Architecture
 
-![Network Topology](./images/topology.png)
+### 🤖 Automation Framework
 
-## BGP Failover Workflow
-
-![Failover Workflow](./images/workflow.png)
+| Component | Role | Key Features |
+|-----------|------|-------------|
+| **NetBox** | Single Source of Truth (SSoT) | • BGP policy modeling with custom fields<br>• RESTful API for external integrations<br>• Webhooks to trigger automation events<br>🔗 [netboxlabs.com](https://netboxlabs.com/) |
+| **GitLab CI/CD** | Configuration Pipeline | • Automated pipeline for BGP policy changes<br>• GitLab Runner as configuration deployment executor<br>🔗 [gitlab.com](https://gitlab.com/) |
+| **Nornir** | Automation Orchestrator | • Multi-vendor, multi-platform task orchestration<br>• Integrated with GitLab Runner for secure access to Huawei core routers<br>🔗 [nornir.readthedocs.io](https://nornir.readthedocs.io/en/latest/#) |
 
 ---
 
-## Automation Framework Configuration
+## 🔄 Architecture Diagram
 
-### 1. NetBox Node
-
-- Install the NetBox container following [NetBox Docker Plugin Guide](https://github.com/netbox-community/netbox-docker/wiki/Using-Netbox-Plugins)
-- Install the BGP plugin: [netbox-bpg](https://github.com/netbox-community/netbox-bgp.git)
-- Deploy NetBox node:
-  ```bash
-  docker compose up -d
+```mermaid
+graph LR
+    A[NetBox: SSoT] -->|Webhooks| B(GitLab CI/CD)
+    B -->|Trigger Pipeline| C[GitLab Runner]
+    C -->|Execute via SSH| D[Nornir]
+    D -->|Configure| E[Huawei Core Router]
+    F[Telemetry Stack] -->|Metrics| A
+    F -->|Alerts| B
