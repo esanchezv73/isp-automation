@@ -91,4 +91,4 @@ sequenceDiagram
     else Metrics OK
         Script->>ES: Log normal operation
     end
-```mermaid
+
