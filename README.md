@@ -105,3 +105,17 @@ sequenceDiagram
 - Deploy NetBox:
 ```bash
 docker compose up -d
+...
+- Generate a secure API token
+- Configure core objects:
+Sites
+Platforms
+Manufacturers
+Devices
+Interfaces
+- Configure BGP objects:
+Communities
+Prefix List Rules
+Routing Policy Rules
+Sessions
+- Define custom fields:
