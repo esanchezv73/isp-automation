@@ -166,5 +166,6 @@ gitlab-runner register \
   - Public DNS → Hop-by-hop latency
 ### Collected Metrics
 | Average Latency | (ms) | 
+|-----------|------|
 | Jitter / Variability | (Standard Deviation) | 
 | Packet Loss | (%) |
