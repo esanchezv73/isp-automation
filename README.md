@@ -92,3 +92,16 @@ sequenceDiagram
         Script->>ES: Log normal operation
     end
 
+## ⚙️ Automation Framework Configuration (Detailed)
+
+### 1. NetBox Node
+
+- Install NetBox container following:
+  https://github.com/netbox-community/netbox-docker/wiki/Using-Netbox-Plugins
+
+- Install BGP plugin:
+  https://github.com/netbox-community/netbox-bgp.git
+
+- Deploy NetBox:
+```bash
+docker compose up -d
