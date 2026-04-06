@@ -109,13 +109,20 @@ docker compose up -d
 - Generate a secure API token
 - Configure core objects:
   - Sites
-Platforms
-Manufacturers
-Devices
-Interfaces
+  - Platforms
+  - Manufacturers
+  - Devices
+  - Interfaces
 - Configure BGP objects:
-Communities
-Prefix List Rules
-Routing Policy Rules
-Sessions
+  - Communities
+  - Prefix List Rules
+  - Routing Policy Rules
+  - Sessions
 - Define custom fields:
+  - local_asn
+  - as_path_prepend_count
+  - local_preference
+- Connect NetBox to Containerlab topology:
+```bash
+docker network connect isp-bgp netbox-docker-netbox-1
+```  
