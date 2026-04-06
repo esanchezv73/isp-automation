@@ -192,5 +192,14 @@ gitlab-runner register \
 | DNS Latency | 20 ms | 50 ms |
 | Packet Loss | 0% | 20% (immediate failover) |
 | Switching Margin | - | 3 points |
-
+### 🔁 Failover Actions
+#### Primary Provider
+- AS Path Prepend: 0 (preferred path)
+- Local Preference: 200 (high priority)
+#### Backup Provider
+- AS Path Prepend: 3 (less preferred path)
+- Local Preference: 100 (low priority)
+#### ⚡ Execution
+- Policy updates via NetBox API (routing policies)
+- Fully automated execution (no manual intervention)
 
