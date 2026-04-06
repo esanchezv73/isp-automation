@@ -178,4 +178,9 @@ gitlab-runner register \
 | Packet size | 64 bytes |
 | Packet interval | 0.5 seconds |
 | Timeout | 30 seconds |
+### 🧮 Weighted Scoring System
+- Score = Weighted_Latency + Loss_Penalty + Jitter_Penalty. Where...
+  - Weighted_Latency = (Peer × 70%) + (DNS × 30%)
+  - Loss_Penalty = (Peer_Loss% + DNS_Loss%) × 100
+  - Jitter_Penalty = (Peer_StDev + DNS_StDev) × 0.5 
 
