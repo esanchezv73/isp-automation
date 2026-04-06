@@ -165,7 +165,8 @@ gitlab-runner register \
   - BGP Peer → Direct latency to router
   - Public DNS → Hop-by-hop latency
 ### Collected Metrics
-| Average Latency | (ms) | 
+| Metric | value | 
 |-----------|------|
+| Average Latency | (ms) | 
 | Jitter / Variability | (Standard Deviation) | 
 | Packet Loss | (%) |
