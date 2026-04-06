@@ -105,7 +105,7 @@ sequenceDiagram
 - Deploy NetBox:
 ```bash
 docker compose up -d
-...
+```
 - Generate a secure API token
 - Configure core objects:
 Sites
