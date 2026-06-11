@@ -19,4 +19,7 @@ os=ubuntu dist=jammy ./gitlab-runner-install.sh
 sleep 3
 apt-get install -y gitlab-runner
 sleep 5
-apt install -y python3-psycopg2
+apt install python3-psycopg2 -y
+sleep 1
+apt install postgresql-client -y
+sleep 1
