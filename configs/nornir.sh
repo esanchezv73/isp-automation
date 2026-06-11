@@ -19,3 +19,4 @@ os=ubuntu dist=jammy ./gitlab-runner-install.sh
 sleep 3
 apt-get install -y gitlab-runner
 sleep 5
+apt install -y python3-psycopg2
