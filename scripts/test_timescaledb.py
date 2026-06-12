@@ -56,10 +56,10 @@ def test_multiple_inserts():
     base_time = datetime.utcnow()
     
     for i in range(5):
-        # IXA
+        # PROVIDER1
         metrics_list.append({
             'time': base_time - timedelta(seconds=30*i),
-            'provider': 'IXA',
+            'provider': 'PROVIDER1',
             'peer_latency_ms': 12.5 + (i * 0.5),  # Aumenta gradualmente
             'peer_jitter_ms': 3.2 + (i * 0.1),
             'peer_loss_pct': 0.0,
@@ -72,7 +72,7 @@ def test_multiple_inserts():
             'quality_status': 'excellent' if i < 3 else 'good'
         })
         
-        # UFINET
+        # PROVIDER2
         metrics_list.append({
             'time': base_time - timedelta(seconds=30*i),
             'provider': 'PROVIDER2',
