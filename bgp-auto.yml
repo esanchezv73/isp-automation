@@ -74,6 +74,7 @@ topology:
       binds:
        - configs/nornir.sh:/root/nornir.sh
        - configs/nornir/automation:/root/automation
+       - scripts/timescaledb_client.py:/root/timescaledb_client.py
       exec:
        - python3 -m pip config set global.break-system-packages true
        - chmod +x /root/nornir.sh
