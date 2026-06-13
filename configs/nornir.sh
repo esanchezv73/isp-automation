@@ -6,7 +6,9 @@ pip install nornir nornir-utils
 sleep 2
 pip install pynetbox
 sleep 1
-pip install xgboost scikit-learn pandas
+pip install xgboost scikit-learn
+sleep 1
+pip install matplotlib pandas
 sleep 1
 pip install nornir-jinja2
 sleep 1
