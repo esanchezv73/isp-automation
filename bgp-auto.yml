@@ -74,7 +74,7 @@ topology:
       binds:
        - configs/nornir.sh:/root/nornir.sh
        - configs/nornir/automation:/root/automation
-       - scripts:/root/scripts
+       - scripts/bgp_failover_timescaledb.py:/root/automation
       exec:
        - python3 -m pip config set global.break-system-packages true
        - chmod +x /root/nornir.sh
@@ -136,6 +136,7 @@ topology:
     - endpoints: ["rt-core:eth3", "switch-agr:eth1"]
     - endpoints: ["PC-corpo:eth1", "switch-agr:eth2"]
     - endpoints: ["nornir:eth1", "switch-agr:eth3"] 
+    - endpoints: ["ianetops:eth1", "switch-agr:eth4"] 
     - endpoints: ["rt-provider1:e1-2", "switch-wan:eth1"]
     - endpoints: ["rt-provider2:e1-2", "switch-wan:eth2"]
     - endpoints: ["srvweb:eth1", "switch-wan:eth3"]
