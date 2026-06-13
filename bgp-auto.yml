@@ -82,6 +82,19 @@ topology:
        #- ip -6 address add 2001:db8:ca01::100/64 dev eth1 
        #- ip -6 route add default via 2001:db8:ca01::1
 
+    ianetops:
+      kind: linux
+      image: docker.io/esanchezv/kali-python3:latest 
+      binds:
+       - configs/ianet.sh:/root/ianet.sh
+       - scripts:/root/automation
+      exec:
+       - python3 -m pip config set global.break-system-packages true
+       - chmod +x /root/ianet.sh
+       - bash /root/ianet.sh    
+       #- ip -6 address add 2001:db8:ca01::100/64 dev eth1 
+       #- ip -6 route add default via 2001:db8:ca01::1   
+
     grafana:
       kind: linux
       mgmt-ipv4: 172.90.90.43
