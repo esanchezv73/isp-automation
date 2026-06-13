@@ -74,7 +74,6 @@ topology:
       binds:
        - configs/nornir.sh:/root/nornir.sh
        - configs/nornir/automation:/root/automation
-       - scripts/bgp_failover_timescaledb.py:/root/automation
       exec:
        - python3 -m pip config set global.break-system-packages true
        - chmod +x /root/nornir.sh
