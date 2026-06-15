@@ -414,7 +414,7 @@ class BGPFailoverEngine:
                 "cycle": self.cycle_count,
                 "current_provider": current_primary_provider,
                 "provider_changed": provider_will_change,
-                "previous_provider": self.last_provider if provider_will_change else current_primary_provider,
+                "previous_provider": current_primary_provider if provider_will_change else None,  # ✅ CORREGIDO: usar current, no last
                 "new_provider": new_provider if provider_will_change else None,
                 "change_reason": reason
             }
