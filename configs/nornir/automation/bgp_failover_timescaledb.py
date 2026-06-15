@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-BGP Failover Engine VERSIÓN CORREGIDA
+BGP Failover Engine VERSIÓN MEJORADA CON PERSISTENCIA
 - Lógica de switch_margin CORRECTA
+- Persistencia de cycle_number (NO reinicia desde 1)
+- Persistencia de current_provider
 - TimescaleDB integrado
-- Logs completos restaurados
 """
 
 import requests
@@ -57,8 +58,6 @@ TIMESCALEDB_USER = 'bgp_app'
 TIMESCALEDB_PASSWORD = 'bgp_app_password'
 SUSTAINED_DEGRADATION_CYCLES = 3
 IMMEDIATE_FAILOVER_PACKET_LOSS = 20.0
-
-current_primary_provider = "PROVIDER1"
 
 
 @dataclass
@@ -136,9 +135,6 @@ class ElasticsearchClient:
                 prefix = provider_name.lower()
                 doc[f"{prefix}_score"] = metrics["score"]
                 doc[f"{prefix}_peer_latency_ms"] = metrics["peer_latency_ms"]
-                doc[f"{prefix}_peer_loss_pct"] = metrics["peer_loss_pct"]
-                doc[f"{prefix}_dns_latency_ms"] = metrics["dns_latency_ms"]
-                doc[f"{prefix}_dns_loss_pct"] = metrics["dns_loss_pct"]
             
             fecha = datetime.now(timezone.utc).strftime("%Y.%m.%d")
             index_name = f"{self.index_prefix}-{fecha}"
@@ -181,10 +177,17 @@ class BGPFailoverEngine:
                 logging.error(f"❌ Error inicializando TimescaleDB: {e}")
                 self.ts_client = None
         
-        self.cycle_count = 0
-        self.last_provider = current_primary_provider
+        # ✅ CORRECCIÓN: Leer estado anterior de BD
+        self.cycle_count = self._load_last_cycle_number()
+        self.current_primary_provider = self._load_current_provider()
+        self.last_provider = self.current_primary_provider
+        
         self.degradation_counter = 0
         self.better_provider_candidate = None
+        
+        logging.info(f"🚀 Engine inicializado:")
+        logging.info(f"   Ciclo actual: {self.cycle_count}")
+        logging.info(f"   Provider actual: {self.current_primary_provider}")
     
     def _load_provider_config(self):
         """Carga provider_asn y peer_ip desde TimescaleDB"""
@@ -203,6 +206,64 @@ class BGPFailoverEngine:
             logging.info(f"✅ Configuración de {len(self.provider_asn_map)} providers cargada")
         except Exception as e:
             logging.error(f"❌ Error cargando provider_config: {e}")
+    
+    def _load_last_cycle_number(self) -> int:
+        """
+        ✅ NUEVO: Lee el último cycle_number de bgp_metrics
+        Asegura que no haya reinicio desde ciclo 1
+        """
+        try:
+            if not self.ts_client or not self.ts_client.conn:
+                logging.warning("⚠️ TimescaleDB no disponible, iniciando desde ciclo 1")
+                return 1
+            
+            cur = self.ts_client.conn.cursor()
+            cur.execute("SELECT COALESCE(MAX(cycle_number), 0) FROM bgp_metrics")
+            last_cycle = cur.fetchone()[0]
+            cur.close()
+            
+            next_cycle = last_cycle + 1
+            logging.info(f"✅ Último ciclo en BD: {last_cycle} → Próximo: {next_cycle}")
+            return next_cycle
+        
+        except Exception as e:
+            logging.error(f"⚠️ Error leyendo cycle_number: {e}")
+            return 1
+    
+    def _load_current_provider(self) -> str:
+        """
+        ✅ NUEVO: Lee el provider actual del último failover event
+        Asegura que el estado sea consistente con la BD
+        """
+        try:
+            if not self.ts_client or not self.ts_client.conn:
+                logging.warning("⚠️ TimescaleDB no disponible, usando PROVIDER1")
+                return "PROVIDER1"
+            
+            cur = self.ts_client.conn.cursor()
+            
+            # Obtener el último evento de cambio
+            cur.execute("""
+                SELECT new_provider 
+                FROM bgp_failover_events 
+                ORDER BY event_id DESC 
+                LIMIT 1
+            """)
+            
+            result = cur.fetchone()
+            cur.close()
+            
+            if result:
+                provider = result[0]
+                logging.info(f"✅ Provider actual en BD: {provider}")
+                return provider
+            else:
+                logging.info("ℹ️ No hay eventos previos, usando PROVIDER1")
+                return "PROVIDER1"
+        
+        except Exception as e:
+            logging.error(f"⚠️ Error leyendo provider actual: {e}")
+            return "PROVIDER1"
     
     def run_mtr(self, destination: str, ip_version: str) -> Optional[Dict[str, Any]]:
         try:
@@ -284,15 +345,15 @@ class BGPFailoverEngine:
         for provider in PROVIDERS:
             score = provider_scores[provider]['score']
             health = "✅" if provider_scores[provider]['is_healthy'] else "❌"
-            current = "⭐" if provider == current_primary_provider else "  "
+            current = "⭐" if provider == self.current_primary_provider else "  "
             logging.info(f"   {current} {provider}: {score:.2f} {health}")
         
         best_provider = min(provider_scores.keys(), key=lambda p: provider_scores[p]['score'])
         best_score = provider_scores[best_provider]['score']
-        current_score = provider_scores[current_primary_provider]['score']
+        current_score = provider_scores[self.current_primary_provider]['score']
         score_diff = current_score - best_score
         
-        if best_provider != current_primary_provider:
+        if best_provider != self.current_primary_provider:
             # ✅ CORRECCIÓN: Verificar switch_margin PRIMERO
             if score_diff > LATENCY_THRESHOLDS['switch_margin']:
                 # Solo ahora contar como degradación
@@ -305,7 +366,7 @@ class BGPFailoverEngine:
                     logging.info(f"🔄 Nuevo candidato: {best_provider} (contador reiniciado 1/{SUSTAINED_DEGRADATION_CYCLES})")
                 
                 # Verificar si cumple para cambiar
-                if not provider_scores[current_primary_provider]['is_healthy']:
+                if not provider_scores[self.current_primary_provider]['is_healthy']:
                     self.degradation_counter = 0
                     self.better_provider_candidate = None
                     return best_provider, f"Cambio inmediato: {best_provider}", provider_scores
@@ -321,11 +382,11 @@ class BGPFailoverEngine:
                 logging.info(f"✅ Diferencia insuficiente ({score_diff:.2f} < {LATENCY_THRESHOLDS['switch_margin']})")
         else:
             if self.degradation_counter > 0:
-                logging.info(f"✅ {current_primary_provider} vuelve a ser el mejor")
+                logging.info(f"✅ {self.current_primary_provider} vuelve a ser el mejor")
             self.degradation_counter = 0
             self.better_provider_candidate = None
         
-        return current_primary_provider, "Condiciones estables", provider_scores
+        return self.current_primary_provider, "Condiciones estables", provider_scores
     
     def update_netbox_policy(self, rule_id: int, updates: Dict[str, Any]):
         if DRY_RUN:
@@ -333,12 +394,11 @@ class BGPFailoverEngine:
             return
     
     def switch_to_provider(self, new_provider: str, reason: str):
-        global current_primary_provider
-        if new_provider == current_primary_provider:
+        if new_provider == self.current_primary_provider:
             return
-        self.last_provider = current_primary_provider
-        logging.info(f"🔄 Cambiando de {current_primary_provider} a {new_provider}")
-        current_primary_provider = new_provider
+        self.last_provider = self.current_primary_provider
+        logging.info(f"🔄 Cambiando de {self.current_primary_provider} a {new_provider}")
+        self.current_primary_provider = new_provider
     
     def send_metrics_to_timescaledb(self, cycle_data: Dict[str, Any], all_providers_metrics: Dict[str, Dict]):
         """Envía métricas a TimescaleDB"""
@@ -375,6 +435,7 @@ class BGPFailoverEngine:
                 
                 self.ts_client.insert_bgp_metrics(metric)
             
+            # ✅ CORRECCIÓN: previous_provider = current_provider (estado ANTES del cambio)
             if cycle_data["provider_changed"] and cycle_data.get("new_provider") and cycle_data["new_provider"] != cycle_data["previous_provider"]:
                 event = {
                     'previous_provider': cycle_data["previous_provider"],
@@ -402,19 +463,20 @@ class BGPFailoverEngine:
     
     def run_cycle(self):
         try:
-            self.cycle_count += 1
+            # ✅ CORRECCIÓN: NO incrementar aquí, usar cycle_count actual
             logging.info("=" * 80)
-            logging.info(f"🔍 Ciclo #{self.cycle_count} - Primary: {current_primary_provider}")
+            logging.info(f"🔍 Ciclo #{self.cycle_count} - Primary: {self.current_primary_provider}")
             
             new_provider, reason, provider_scores = self.should_switch_provider()
             
-            provider_will_change = new_provider != current_primary_provider
+            # ✅ CORRECCIÓN: previous_provider = current_primary_provider (estado ANTES del cambio)
+            provider_will_change = new_provider != self.current_primary_provider
             
             cycle_data = {
                 "cycle": self.cycle_count,
-                "current_provider": current_primary_provider,
+                "current_provider": self.current_primary_provider,
                 "provider_changed": provider_will_change,
-                "previous_provider": self.last_provider if provider_will_change else current_primary_provider,
+                "previous_provider": self.current_primary_provider if provider_will_change else None,
                 "new_provider": new_provider if provider_will_change else None,
                 "change_reason": reason
             }
@@ -441,8 +503,12 @@ class BGPFailoverEngine:
             
             if provider_will_change:
                 self.switch_to_provider(new_provider, reason)
+                logging.info(f"🔄 Failover: {cycle_data['previous_provider']} → {new_provider} (ciclos: {self.cycle_count})")
             else:
                 logging.info(f"✓ Sin cambios - {reason}")
+            
+            # ✅ CORRECCIÓN: Incrementar al FINAL para preparar siguiente ciclo
+            self.cycle_count += 1
                 
         except Exception as e:
             logging.error(f"❌ Error en ciclo: {e}", exc_info=True)
@@ -463,11 +529,10 @@ def main():
     
     engine = BGPFailoverEngine()
     
-    logging.info("🚀 BGP Failover Engine - Versión Corregida")
+    logging.info("🚀 BGP Failover Engine - Versión con Persistencia")
     logging.info(f"📍 Providers: {', '.join(PROVIDERS)}")
     logging.info(f"⏱️ Ciclo: {CYCLE_INTERVAL}s")
     logging.info(f"📊 Switch Margin: {LATENCY_THRESHOLDS['switch_margin']} puntos")
-    logging.info(f"⚠️ Degradación Sostenida: {SUSTAINED_DEGRADATION_CYCLES} ciclos")
     
     while True:
         engine.run_cycle()
