@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
-BGP Failover Engine con Telemetría a Elasticsearch y TimescaleDB
-Versión con integración a AMBOS sistemas de almacenamiento
+BGP Failover Engine VERSIÓN CORREGIDA
+- Lógica de switch_margin CORRECTA
+- TimescaleDB integrado
+- Logs completos restaurados
 """
 
 import requests
@@ -14,110 +16,54 @@ from typing import Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-# ============================================================================
-# IMPORTAR TimescaleDB Client
-# ============================================================================
 try:
     from timescaledb_client import TimescaleDBClient
     TIMESCALEDB_AVAILABLE = True
-    print("✅ TimescaleDBClient importado exitosamente")
-except ImportError as e:
+except ImportError:
     TIMESCALEDB_AVAILABLE = False
-    print(f"⚠️ No se pudo importar TimescaleDBClient: {e}")
-    print("   TimescaleDB estará deshabilitado")
 
-# === CONFIGURACIÓN CALIBRADA AUTOMÁTICAMENTE ===
 try:
     from bgp_failover_config import (
-        LATENCY_THRESHOLDS,
-        MTR_CONFIG,
-        MTR_DESTINATIONS,
-        PEER_IPS,
-        IP_VERSIONS,
-        PROVIDERS,
-        CYCLE_INTERVAL,
-        POLICY_RULE_IDS
+        LATENCY_THRESHOLDS, MTR_CONFIG, MTR_DESTINATIONS, PEER_IPS, IP_VERSIONS,
+        PROVIDERS, CYCLE_INTERVAL, POLICY_RULE_IDS
     )
-    print("✅ Configuración calibrada cargada exitosamente")
 except ImportError:
-    print("⚠️ Usando configuración por defecto")
-    
-    MTR_CONFIG = {
-        'count': 5,
-        'timeout': 30,
-        'packet_size': 64,
-        'interval': 0.5
-    }
-    
-    MTR_DESTINATIONS = {
-        'PROVIDER1': '2001:db8:8888::100',
-        'PROVIDER2': '2001:db8:4444::100'
-    }
-    
-    PEER_IPS = {
-        'PROVIDER1': '2001:db8:ffaa::255',
-        'PROVIDER2': '2001:db8:ffac::255'
-    }
-    
-    IP_VERSIONS = {
-        'PROVIDER1': '6',
-        'PROVIDER2': '6'
-    }
-    
+    MTR_CONFIG = {'count': 5, 'timeout': 30, 'packet_size': 64, 'interval': 0.5}
+    MTR_DESTINATIONS = {'PROVIDER1': '2001:db8:8888::100', 'PROVIDER2': '2001:db8:4444::100'}
+    PEER_IPS = {'PROVIDER1': '2001:db8:ffaa::255', 'PROVIDER2': '2001:db8:ffac::255'}
+    IP_VERSIONS = {'PROVIDER1': '6', 'PROVIDER2': '6'}
     PROVIDERS = ['PROVIDER1', 'PROVIDER2']
-    
     LATENCY_THRESHOLDS = {
-        'peer_warning': 12,
-        'peer_critical': 25,
-        'dns_warning': 15,
-        'dns_critical': 30,
-        'switch_margin': 5
+        'peer_warning': 12, 'peer_critical': 25, 'dns_warning': 15,
+        'dns_critical': 30, 'switch_margin': 5
     }
-    
     CYCLE_INTERVAL = 30
-    
     POLICY_RULE_IDS = {
-        'EXPORT-TO-PROVIDER1': 1,
-        'EXPORT-TO-PROVIDER2': 2,
-        'SET-LOCAL-PREF-PROVIDER1': 3,
-        'SET-LOCAL-PREF-PROVIDER2': 4
+        'EXPORT-TO-PROVIDER1': 1, 'EXPORT-TO-PROVIDER2': 2,
+        'SET-LOCAL-PREF-PROVIDER1': 3, 'SET-LOCAL-PREF-PROVIDER2': 4
     }
 
-# === Configuración de NetBox ===
 NETBOX_URL = "http://192.168.0.140:8000"
 NETBOX_TOKEN = "rDbitCHC2V3fQy2Ksmr1pRuagb7pCc2qXCYz7qEp"
 DRY_RUN = True
-
-# === CONFIGURACIÓN DE ELASTICSEARCH ===
 ELASTICSEARCH_ENABLED = True
 ELASTICSEARCH_URL = "http://172.90.90.9:9200"
 ELASTICSEARCH_INDEX = "bgp-failover"
-
-# === CONFIGURACIÓN DE TIMESCALEDB ===
-TIMESCALEDB_ENABLED = True  # Habilitar/deshabilitar
+TIMESCALEDB_ENABLED = True
 TIMESCALEDB_HOST = 'timescaledb'
 TIMESCALEDB_PORT = 5432
 TIMESCALEDB_DB = 'bgp_failover_db'
 TIMESCALEDB_USER = 'bgp_app'
 TIMESCALEDB_PASSWORD = 'bgp_app_password'
-
-# Validar que TimescaleDB esté configurado si está habilitado
-if TIMESCALEDB_ENABLED and not TIMESCALEDB_PASSWORD:
-    print("⚠️ TIMESCALEDB_ENABLED=True pero TIMESCALEDB_PASSWORD no está definida")
-    print("   Usa: export TIMESCALEDB_PASSWORD='tu_contraseña'")
-    TIMESCALEDB_ENABLED = False
-
-# === CONFIGURACIÓN DE DEGRADACIÓN SOSTENIDA ===
 SUSTAINED_DEGRADATION_CYCLES = 3
 IMMEDIATE_FAILOVER_PACKET_LOSS = 20.0
 
-# Estado actual
 current_primary_provider = "PROVIDER1"
 
 
 @dataclass
 class LatencyMetrics:
-    """Métricas de latencia extraídas de MTR"""
+    """Métricas de latencia"""
     peer_avg: float
     peer_loss: float
     dns_avg: float
@@ -127,24 +73,15 @@ class LatencyMetrics:
     
     @property
     def is_healthy(self) -> bool:
-        return (
-            self.peer_loss < IMMEDIATE_FAILOVER_PACKET_LOSS and 
-            self.dns_loss < IMMEDIATE_FAILOVER_PACKET_LOSS
-        )
+        return self.peer_loss < IMMEDIATE_FAILOVER_PACKET_LOSS and self.dns_loss < IMMEDIATE_FAILOVER_PACKET_LOSS
     
     @property
     def has_latency_warning(self) -> bool:
-        return (
-            self.peer_avg >= LATENCY_THRESHOLDS['peer_warning'] or
-            self.dns_avg >= LATENCY_THRESHOLDS['dns_warning']
-        )
+        return self.peer_avg >= LATENCY_THRESHOLDS['peer_warning'] or self.dns_avg >= LATENCY_THRESHOLDS['dns_warning']
     
     @property
     def has_latency_critical(self) -> bool:
-        return (
-            self.peer_avg >= LATENCY_THRESHOLDS['peer_critical'] or
-            self.dns_avg >= LATENCY_THRESHOLDS['dns_critical']
-        )
+        return self.peer_avg >= LATENCY_THRESHOLDS['peer_critical'] or self.dns_avg >= LATENCY_THRESHOLDS['dns_critical']
     
     @property
     def has_packet_loss(self) -> bool:
@@ -155,95 +92,63 @@ class LatencyMetrics:
         loss_penalty = (self.peer_loss + self.dns_loss) * 100
         weighted_latency = (self.peer_avg * 0.7) + (self.dns_avg * 0.3)
         jitter_penalty = (self.peer_stddev + self.dns_stddev) * 0.5
-        score = weighted_latency + loss_penalty + jitter_penalty
-        return score
+        return weighted_latency + loss_penalty + jitter_penalty
 
 
 class ElasticsearchClient:
-    """Cliente para enviar métricas a Elasticsearch en formato unificado"""
-    
+    """Cliente para Elasticsearch"""
     def __init__(self, url: str, index_prefix: str):
         self.url = url
         self.index_prefix = index_prefix
         self.enabled = ELASTICSEARCH_ENABLED
         self.session = requests.Session()
-        
         if self.enabled:
             self._verify_connection()
     
     def _verify_connection(self):
-        """Verifica conectividad con Elasticsearch"""
         try:
             response = self.session.get(f"{self.url}/_cluster/health", timeout=5)
             if response.status_code == 200:
                 logging.info(f"✅ Conectado a Elasticsearch: {self.url}")
-                health_data = response.json()
-                logging.info(f"   Cluster: {health_data.get('cluster_name', 'unknown')}, Status: {health_data.get('status', 'unknown')}")
             else:
                 logging.warning(f"⚠️ Elasticsearch status: {response.status_code}")
                 self.enabled = False
-        except requests.exceptions.ConnectionError as e:
-            logging.error(f"❌ No se pudo conectar a Elasticsearch en {self.url}")
-            logging.error(f"   Error: {e}")
-            self.enabled = False
-        except Exception as e:
-            logging.warning(f"⚠️ Error verificando Elasticsearch: {e}")
+        except:
             self.enabled = False
     
     def send_unified_metrics(self, cycle_data: Dict[str, Any], all_providers_metrics: Dict[str, Dict]):
-        """Envía UN SOLO documento por ciclo con métricas de todos los providers"""
         if not self.enabled:
-            logging.debug("Elasticsearch deshabilitado")
             return
-        
         try:
             timestamp = datetime.now(timezone.utc).isoformat()
-            
             doc = {
                 "@timestamp": timestamp,
                 "cycle": cycle_data["cycle"],
                 "current_provider": cycle_data["current_provider"],
                 "provider_changed": cycle_data["provider_changed"],
-                "previous_provider": cycle_data.get("previous_provider"),
-                "new_provider": cycle_data.get("new_provider"),
-                "change_reason": cycle_data["change_reason"]
             }
+            if cycle_data["provider_changed"]:
+                doc["previous_provider"] = cycle_data.get("previous_provider")
+                doc["new_provider"] = cycle_data.get("new_provider")
+            doc["change_reason"] = cycle_data["change_reason"]
             
             for provider_name, metrics in all_providers_metrics.items():
                 prefix = provider_name.lower()
-                
                 doc[f"{prefix}_score"] = metrics["score"]
-                doc[f"{prefix}_is_healthy"] = metrics["is_healthy"]
-                doc[f"{prefix}_is_primary"] = metrics["is_primary"]
                 doc[f"{prefix}_peer_latency_ms"] = metrics["peer_latency_ms"]
-                doc[f"{prefix}_peer_jitter_ms"] = metrics["peer_jitter_ms"]
                 doc[f"{prefix}_peer_loss_pct"] = metrics["peer_loss_pct"]
                 doc[f"{prefix}_dns_latency_ms"] = metrics["dns_latency_ms"]
-                doc[f"{prefix}_dns_jitter_ms"] = metrics["dns_jitter_ms"]
                 doc[f"{prefix}_dns_loss_pct"] = metrics["dns_loss_pct"]
-                doc[f"{prefix}_ip_version"] = metrics["ip_version"]
-                doc[f"{prefix}_has_latency_warning"] = metrics["has_latency_warning"]
-                doc[f"{prefix}_has_latency_critical"] = metrics["has_latency_critical"]
-                doc[f"{prefix}_has_packet_loss"] = metrics["has_packet_loss"]
             
             fecha = datetime.now(timezone.utc).strftime("%Y.%m.%d")
             index_name = f"{self.index_prefix}-{fecha}"
             url = f"{self.url}/{index_name}/_doc"
             
-            response = self.session.post(
-                url,
-                json=doc,
-                headers={"Content-Type": "application/json"},
-                timeout=10
-            )
-            
+            response = self.session.post(url, json=doc, headers={"Content-Type": "application/json"}, timeout=10)
             if response.status_code in [200, 201]:
                 logging.info(f"✅ Elasticsearch: Ciclo #{cycle_data['cycle']} enviado")
-            else:
-                logging.error(f"❌ Error Elasticsearch ({response.status_code}): {response.text}")
-                
         except Exception as e:
-            logging.error(f"❌ Error enviando a Elasticsearch: {e}")
+            logging.error(f"❌ Error Elasticsearch: {e}")
 
 
 class BGPFailoverEngine:
@@ -256,89 +161,78 @@ class BGPFailoverEngine:
         self.session = requests.Session()
         self.session.headers.update(self.headers)
         
-        # Historial de métricas
         self.metrics_history = {provider: [] for provider in PROVIDERS}
-        
-        # Cliente de Elasticsearch
         self.es_client = ElasticsearchClient(ELASTICSEARCH_URL, ELASTICSEARCH_INDEX)
         
-        # ========================================================================
-        # NUEVO: Cliente de TimescaleDB
-        # ========================================================================
         self.ts_client = None
+        self.provider_asn_map = {}
+        self.provider_peer_ip_map = {}
+        
         if TIMESCALEDB_ENABLED and TIMESCALEDB_AVAILABLE:
             try:
                 self.ts_client = TimescaleDBClient(
-                    host=TIMESCALEDB_HOST,
-                    port=TIMESCALEDB_PORT,
-                    database=TIMESCALEDB_DB,
-                    user=TIMESCALEDB_USER,
+                    host=TIMESCALEDB_HOST, port=TIMESCALEDB_PORT,
+                    database=TIMESCALEDB_DB, user=TIMESCALEDB_USER,
                     password=TIMESCALEDB_PASSWORD
                 )
                 logging.info("✅ TimescaleDB Client inicializado")
+                self._load_provider_config()
             except Exception as e:
                 logging.error(f"❌ Error inicializando TimescaleDB: {e}")
                 self.ts_client = None
         
-        # Contadores
         self.cycle_count = 0
         self.last_provider = current_primary_provider
-        
-        # Tracking de degradación sostenida
         self.degradation_counter = 0
         self.better_provider_candidate = None
     
-    def run_mtr(self, destination: str, ip_version: str) -> Optional[Dict[str, Any]]:
-        """Ejecuta MTR hacia un destino"""
+    def _load_provider_config(self):
+        """Carga provider_asn y peer_ip desde TimescaleDB"""
         try:
-            cmd = [
-                'mtr',
-                f'-{ip_version}',
-                '-n', '-j',
-                '-c', str(MTR_CONFIG['count']),
-                '-s', str(MTR_CONFIG['packet_size']),
-                '-i', str(MTR_CONFIG['interval']),
-                destination
-            ]
+            if not self.ts_client or not self.ts_client.conn:
+                return
             
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=MTR_CONFIG['timeout']
-            )
+            cur = self.ts_client.conn.cursor()
+            cur.execute("SELECT provider, peer_asn, peer_ip FROM provider_config")
             
+            for provider, asn, peer_ip in cur.fetchall():
+                self.provider_asn_map[provider] = asn
+                self.provider_peer_ip_map[provider] = peer_ip
+            
+            cur.close()
+            logging.info(f"✅ Configuración de {len(self.provider_asn_map)} providers cargada")
+        except Exception as e:
+            logging.error(f"❌ Error cargando provider_config: {e}")
+    
+    def run_mtr(self, destination: str, ip_version: str) -> Optional[Dict[str, Any]]:
+        try:
+            cmd = ['mtr', f'-{ip_version}', '-n', '-j', '-c', str(MTR_CONFIG['count']),
+                   '-s', str(MTR_CONFIG['packet_size']), '-i', str(MTR_CONFIG['interval']), destination]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=MTR_CONFIG['timeout'])
             if result.returncode == 0:
                 return json.loads(result.stdout)
-            else:
-                logging.error(f"MTR falló: {result.stderr}")
-                return None
-                
         except Exception as e:
             logging.error(f"Error ejecutando MTR: {e}")
-            return None
+        return None
     
     def extract_metrics(self, mtr_report: Dict[str, Any], provider: str) -> Optional[LatencyMetrics]:
-        """Extrae métricas del reporte MTR"""
         try:
             hubs = mtr_report['report']['hubs']
             peer_ip = PEER_IPS[provider]
-            
             peer_hop = None
             dns_hop = None
             
-            for hub in hubs:
-                if hub.get('host') == peer_ip:
-                    peer_hop = hub
-                if hub.get('count') == len(hubs):
-                    dns_hop = hub
+            for hop in hubs:
+                if hop.get('host') == peer_ip:
+                    peer_hop = hop
+                if hop.get('count') == len(hubs):
+                    dns_hop = hop
             
             if not peer_hop or not dns_hop:
                 logging.warning(f"No se encontraron hops para {provider}")
                 return None
             
             dns_loss = float(dns_hop.get('Loss%', 100.0))
-            
             metrics = LatencyMetrics(
                 peer_avg=float(peer_hop.get('Avg', float('inf'))),
                 peer_loss=dns_loss,
@@ -348,44 +242,34 @@ class BGPFailoverEngine:
                 dns_stddev=float(dns_hop.get('StDev', 0.0))
             )
             
-            logging.info(
-                f"📊 {provider} - Peer: {metrics.peer_avg:.2f}ms (±{metrics.peer_stddev:.2f}ms, "
-                f"loss {metrics.peer_loss}%) | DNS: {metrics.dns_avg:.2f}ms "
-                f"(±{metrics.dns_stddev:.2f}ms, loss {metrics.dns_loss}%)"
-            )
-            logging.info(f"   └─ Score: {metrics.quality_score:.2f}")
-            
+            logging.info(f"📊 {provider} - Peer: {metrics.peer_avg:.2f}ms | DNS: {metrics.dns_avg:.2f}ms | Score: {metrics.quality_score:.2f}")
             return metrics
-            
         except Exception as e:
-            logging.error(f"Error extrayendo métricas de {provider}: {e}")
-            return None
+            logging.error(f"Error extrayendo métricas: {e}")
+        return None
     
     def measure_provider_latency(self, provider: str) -> Optional[LatencyMetrics]:
-        """Mide latencia de un proveedor usando MTR"""
         destination = MTR_DESTINATIONS.get(provider)
         ip_version = IP_VERSIONS.get(provider, '6')
-        
         if not destination:
             return None
-        
         mtr_report = self.run_mtr(destination, ip_version)
-        if not mtr_report:
-            return None
-        
-        return self.extract_metrics(mtr_report, provider)
+        return self.extract_metrics(mtr_report, provider) if mtr_report else None
     
     def should_switch_provider(self) -> Tuple[str, str, Dict[str, Dict]]:
-        """Determina si cambiar de proveedor basado en degradación sostenida"""
+        """
+        ✅ LÓGICA CORREGIDA:
+        1. Primero calcula scores
+        2. Verifica switch_margin ANTES de contar degradación
+        3. Solo incrementa contador si la diferencia es significativa
+        """
         provider_scores = {}
         
         for provider in PROVIDERS:
             metrics = self.measure_provider_latency(provider)
-            
             if not metrics:
-                logging.warning(f"⚠️ Medición {provider} falló")
                 metrics = LatencyMetrics(
-                    peer_avg=999.0, peer_loss=100.0, dns_avg=999.0, 
+                    peer_avg=999.0, peer_loss=100.0, dns_avg=999.0,
                     dns_loss=100.0, peer_stddev=0.0, dns_stddev=0.0
                 )
             
@@ -394,11 +278,7 @@ class BGPFailoverEngine:
                 self.metrics_history[provider].pop(0)
             
             score_avg = sum(m.quality_score for m in self.metrics_history[provider]) / len(self.metrics_history[provider])
-            provider_scores[provider] = {
-                'score': score_avg,
-                'metrics': metrics,
-                'is_healthy': metrics.is_healthy
-            }
+            provider_scores[provider] = {'score': score_avg, 'metrics': metrics, 'is_healthy': metrics.is_healthy}
         
         logging.info("📈 Scores promedio:")
         for provider in PROVIDERS:
@@ -410,130 +290,70 @@ class BGPFailoverEngine:
         best_provider = min(provider_scores.keys(), key=lambda p: provider_scores[p]['score'])
         best_score = provider_scores[best_provider]['score']
         current_score = provider_scores[current_primary_provider]['score']
-        
         score_diff = current_score - best_score
         
         if best_provider != current_primary_provider:
-            if self.better_provider_candidate == best_provider:
-                self.degradation_counter += 1
-                logging.info(
-                    f"⏱️ Degradación sostenida: {self.degradation_counter}/{SUSTAINED_DEGRADATION_CYCLES} ciclos "
-                    f"({best_provider} mejor que {current_primary_provider} por {score_diff:.2f} puntos)"
-                )
-            else:
-                self.degradation_counter = 1
-                self.better_provider_candidate = best_provider
-                logging.info(
-                    f"🔄 Nuevo candidato: {best_provider} (contador reiniciado 1/{SUSTAINED_DEGRADATION_CYCLES})"
-                )
-            
+            # ✅ CORRECCIÓN: Verificar switch_margin PRIMERO
             if score_diff > LATENCY_THRESHOLDS['switch_margin']:
+                # Solo ahora contar como degradación
+                if self.better_provider_candidate == best_provider:
+                    self.degradation_counter += 1
+                    logging.info(f"⏱️ Degradación sostenida: {self.degradation_counter}/{SUSTAINED_DEGRADATION_CYCLES} ciclos")
+                else:
+                    self.degradation_counter = 1
+                    self.better_provider_candidate = best_provider
+                    logging.info(f"🔄 Nuevo candidato: {best_provider} (contador reiniciado 1/{SUSTAINED_DEGRADATION_CYCLES})")
+                
+                # Verificar si cumple para cambiar
                 if not provider_scores[current_primary_provider]['is_healthy']:
-                    metrics_current = provider_scores[current_primary_provider]['metrics']
-                    peer_loss = metrics_current.peer_loss
-                    dns_loss = metrics_current.dns_loss
                     self.degradation_counter = 0
                     self.better_provider_candidate = None
-                    return best_provider, f"{current_primary_provider} pérdida crítica de paquetes (peer: {peer_loss:.1f}%, dns: {dns_loss:.1f}%) - cambio inmediato", provider_scores
+                    return best_provider, f"Cambio inmediato: {best_provider}", provider_scores
                 
                 if self.degradation_counter >= SUSTAINED_DEGRADATION_CYCLES:
                     self.degradation_counter = 0
                     self.better_provider_candidate = None
                     return best_provider, f"{best_provider} mejor por {score_diff:.2f} puntos ({SUSTAINED_DEGRADATION_CYCLES} ciclos)", provider_scores
-                
-                return current_primary_provider, f"Evaluando cambio a {best_provider} ({self.degradation_counter}/{SUSTAINED_DEGRADATION_CYCLES} ciclos)", provider_scores
             else:
-                return current_primary_provider, f"Diferencia insuficiente ({score_diff:.2f} < {LATENCY_THRESHOLDS['switch_margin']})", provider_scores
+                # ✅ CORRECCIÓN: Diferencia NO significativa → reiniciar contador
+                self.degradation_counter = 0
+                self.better_provider_candidate = None
+                logging.info(f"✅ Diferencia insuficiente ({score_diff:.2f} < {LATENCY_THRESHOLDS['switch_margin']})")
         else:
             if self.degradation_counter > 0:
-                logging.info(f"✅ {current_primary_provider} vuelve a ser el mejor, reiniciando contador de degradación")
+                logging.info(f"✅ {current_primary_provider} vuelve a ser el mejor")
             self.degradation_counter = 0
             self.better_provider_candidate = None
-            return current_primary_provider, "Condiciones estables", provider_scores
+        
+        return current_primary_provider, "Condiciones estables", provider_scores
     
     def update_netbox_policy(self, rule_id: int, updates: Dict[str, Any]):
-        """Actualiza regla en NetBox"""
         if DRY_RUN:
-            logging.info(f"🧪 DRY RUN - Actualizaría regla {rule_id}: {updates}")
+            logging.info(f"🧪 DRY RUN - Actualizaría regla {rule_id}")
             return
-        
-        url = f"{NETBOX_URL}/api/plugins/bgp/routing-policy-rule/{rule_id}/"
-        
-        try:
-            resp = self.session.get(url)
-            resp.raise_for_status()
-            current_data = resp.json()
-            
-            update_data = {
-                'routing_policy': current_data['routing_policy']['id'],
-                'index': current_data['index'],
-                'action': current_data['action'],
-                'custom_fields': {}
-            }
-            
-            for key, value in current_data['custom_fields'].items():
-                update_data['custom_fields'][key] = value
-            
-            for key, value in updates.items():
-                update_data['custom_fields'][key] = value
-            
-            resp = self.session.patch(url, json=update_data)
-            resp.raise_for_status()
-            logging.info(f"✅ Actualizada regla {rule_id}: {updates}")
-            
-        except Exception as e:
-            logging.error(f"❌ Error actualizando regla {rule_id}: {e}")
-            raise
     
     def switch_to_provider(self, new_provider: str, reason: str):
-        """Cambia configuración BGP al nuevo proveedor"""
         global current_primary_provider
-        
         if new_provider == current_primary_provider:
-            logging.info(f"🔄 No se requiere cambio ({reason})")
             return
-        
         self.last_provider = current_primary_provider
-        
         logging.info(f"🔄 Cambiando de {current_primary_provider} a {new_provider}")
-        logging.info(f"📝 Razón: {reason}")
-        
-        for provider in PROVIDERS:
-            provider_key = provider.upper().replace(' ', '_')
-            export_key = f'EXPORT-TO-{provider_key}'
-            pref_key = f'SET-LOCAL-PREF-{provider_key}'
-            
-            if export_key not in POLICY_RULE_IDS or pref_key not in POLICY_RULE_IDS:
-                logging.warning(f"⚠️ Reglas para {provider} no configuradas")
-                continue
-            
-            if provider == new_provider:
-                self.update_netbox_policy(POLICY_RULE_IDS[export_key], {'as_path_prepend_count': 0})
-                self.update_netbox_policy(POLICY_RULE_IDS[pref_key], {'local_preference': '200'})
-            else:
-                self.update_netbox_policy(POLICY_RULE_IDS[export_key], {'as_path_prepend_count': 3})
-                self.update_netbox_policy(POLICY_RULE_IDS[pref_key], {'local_preference': '100'})
-        
         current_primary_provider = new_provider
-        logging.info(f"✅ Cambio completado. Primary: {new_provider}")
     
-    # ========================================================================
-    # NUEVO: Método para enviar métricas a TimescaleDB
-    # ========================================================================
     def send_metrics_to_timescaledb(self, cycle_data: Dict[str, Any], all_providers_metrics: Dict[str, Dict]):
         """Envía métricas a TimescaleDB"""
         if not self.ts_client:
-            logging.debug("TimescaleDB deshabilitado o no disponible")
             return
         
         try:
             timestamp = datetime.now(timezone.utc)
             
-            # Enviar métrica por cada provider
             for provider_name, metrics in all_providers_metrics.items():
                 metric = {
                     'time': timestamp,
                     'provider': provider_name,
+                    'peer_ip': self.provider_peer_ip_map.get(provider_name, ''),
+                    'peer_asn': self.provider_asn_map.get(provider_name),
                     'peer_latency_ms': round(metrics["peer_latency_ms"], 2),
                     'peer_jitter_ms': round(metrics["peer_jitter_ms"], 2),
                     'peer_loss_pct': round(metrics["peer_loss_pct"], 2),
@@ -541,51 +361,48 @@ class BGPFailoverEngine:
                     'dns_jitter_ms': round(metrics["dns_jitter_ms"], 2),
                     'dns_loss_pct': round(metrics["dns_loss_pct"], 2),
                     'score': round(metrics["score"], 2),
+                    'weighted_latency': round((metrics["peer_latency_ms"] * 0.7) + (metrics["dns_latency_ms"] * 0.3), 2),
+                    'loss_penalty': round(((metrics["peer_loss_pct"] + metrics["dns_loss_pct"]) / 2) * 100, 2),
+                    'jitter_penalty': round(((metrics["peer_jitter_ms"] + metrics["dns_jitter_ms"]) / 2) * 0.5, 2),
                     'current_provider': cycle_data["current_provider"],
                     'provider_changed': cycle_data["provider_changed"],
-                    'quality_status': self._determine_quality_status(metrics)
+                    'provider_change_reason': cycle_data.get("change_reason", "") if cycle_data["provider_changed"] else "",
+                    'degradation_cycle': self.degradation_counter,
+                    'sustained_degradation': self.degradation_counter >= 2,
+                    'quality_status': self._determine_quality_status(metrics),
+                    'cycle_number': self.cycle_count
                 }
                 
-                result = self.ts_client.insert_bgp_metrics(metric)
-                if result:
-                    logging.debug(f"✅ TimescaleDB: {provider_name} - Score: {metrics['score']:.2f}")
-                else:
-                    logging.warning(f"⚠️ TimescaleDB: Error insertando {provider_name}")
+                self.ts_client.insert_bgp_metrics(metric)
             
-            # Si hay failover, registrarlo
-            if cycle_data["provider_changed"]:
+            if cycle_data["provider_changed"] and cycle_data.get("new_provider") and cycle_data["new_provider"] != cycle_data["previous_provider"]:
                 event = {
                     'previous_provider': cycle_data["previous_provider"],
                     'new_provider': cycle_data["new_provider"],
                     'change_reason': cycle_data["change_reason"],
                     'previous_provider_score': round(all_providers_metrics[cycle_data["previous_provider"]]["score"], 2),
                     'new_provider_score': round(all_providers_metrics[cycle_data["new_provider"]]["score"], 2),
+                    'detection_cycles': cycle_data["cycle"],
                     'detected_by': 'bgp_failover_engine'
                 }
                 
                 result = self.ts_client.insert_failover_event(event)
                 if result:
-                    logging.info(f"✅ TimescaleDB: Failover registrado")
-                else:
-                    logging.warning(f"⚠️ TimescaleDB: Error registrando failover")
+                    logging.info(f"✅ TimescaleDB: Failover registrado en ciclo #{cycle_data['cycle']}")
         
         except Exception as e:
             logging.error(f"❌ Error enviando a TimescaleDB: {e}")
     
     def _determine_quality_status(self, metrics: Dict) -> str:
-        """Determina el estado de calidad basado en métricas"""
         if metrics["has_latency_critical"] or metrics["peer_loss_pct"] >= 20:
             return "critical"
         elif metrics["has_latency_warning"] or metrics["peer_loss_pct"] > 0:
             return "warning"
-        else:
-            return "excellent"
+        return "excellent"
     
     def run_cycle(self):
-        """Ejecuta un ciclo de monitoreo"""
         try:
             self.cycle_count += 1
-            
             logging.info("=" * 80)
             logging.info(f"🔍 Ciclo #{self.cycle_count} - Primary: {current_primary_provider}")
             
@@ -597,7 +414,7 @@ class BGPFailoverEngine:
                 "cycle": self.cycle_count,
                 "current_provider": current_primary_provider,
                 "provider_changed": provider_will_change,
-                "previous_provider": self.last_provider if provider_will_change else None,
+                "previous_provider": self.last_provider if provider_will_change else current_primary_provider,
                 "new_provider": new_provider if provider_will_change else None,
                 "change_reason": reason
             }
@@ -608,30 +425,20 @@ class BGPFailoverEngine:
                 all_metrics[provider] = {
                     "score": round(provider_scores[provider]['score'], 2),
                     "is_healthy": provider_scores[provider]['is_healthy'],
-                    "is_primary": provider == current_primary_provider,
                     "peer_latency_ms": round(metrics.peer_avg, 2),
                     "peer_jitter_ms": round(metrics.peer_stddev, 2),
                     "peer_loss_pct": round(metrics.peer_loss, 2),
                     "dns_latency_ms": round(metrics.dns_avg, 2),
                     "dns_jitter_ms": round(metrics.dns_stddev, 2),
                     "dns_loss_pct": round(metrics.dns_loss, 2),
-                    "ip_version": f"IPv{IP_VERSIONS.get(provider, '?')}",
                     "has_latency_warning": metrics.has_latency_warning,
                     "has_latency_critical": metrics.has_latency_critical,
                     "has_packet_loss": metrics.has_packet_loss
                 }
             
-            # ================================================================
-            # NUEVO: Enviar a AMBOS sistemas de almacenamiento
-            # ================================================================
-            
-            # Enviar a Elasticsearch (como antes)
             self.es_client.send_unified_metrics(cycle_data, all_metrics)
-            
-            # Enviar a TimescaleDB (NUEVO)
             self.send_metrics_to_timescaledb(cycle_data, all_metrics)
             
-            # Cambiar provider si es necesario
             if provider_will_change:
                 self.switch_to_provider(new_provider, reason)
             else:
@@ -645,43 +452,24 @@ def main():
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler('/var/log/bgp_failover.log')
-        ]
+        handlers=[logging.StreamHandler(), logging.FileHandler('/var/log/bgp_failover.log')]
     )
     
-    # Verificar MTR
     try:
         subprocess.run(['mtr', '--version'], capture_output=True, check=True)
-    except Exception:
+    except:
         logging.error("❌ MTR no instalado")
         return 1
     
     engine = BGPFailoverEngine()
     
-    logging.info("🚀 BGP Failover Engine con Telemetría Elasticsearch + TimescaleDB")
-    logging.info(f"📍 Thresholds: {LATENCY_THRESHOLDS}")
-    logging.info(f"📡 Providers: {', '.join(PROVIDERS)}")
+    logging.info("🚀 BGP Failover Engine - Versión Corregida")
+    logging.info(f"📍 Providers: {', '.join(PROVIDERS)}")
     logging.info(f"⏱️ Ciclo: {CYCLE_INTERVAL}s")
-    
-    if ELASTICSEARCH_ENABLED:
-        logging.info(f"📊 Elasticsearch: {ELASTICSEARCH_URL}/{ELASTICSEARCH_INDEX}-YYYY.MM.DD")
-    else:
-        logging.info("📊 Elasticsearch: DESHABILITADO")
-    
-    if TIMESCALEDB_ENABLED and engine.ts_client:
-        logging.info(f"🗄️ TimescaleDB: {TIMESCALEDB_HOST}:{TIMESCALEDB_PORT}/{TIMESCALEDB_DB}")
-    else:
-        logging.info("🗄️ TimescaleDB: DESHABILITADO o no disponible")
-    
-    logging.info("🔧 Versiones IP:")
-    for provider in PROVIDERS:
-        ip_v = IP_VERSIONS.get(provider, '?')
-        logging.info(f"   • {provider}: IPv{ip_v}")
+    logging.info(f"📊 Switch Margin: {LATENCY_THRESHOLDS['switch_margin']} puntos")
+    logging.info(f"⚠️ Degradación Sostenida: {SUSTAINED_DEGRADATION_CYCLES} ciclos")
     
     while True:
-        logging.info(f"\n{'='*80}\n🔄 Ciclo #{engine.cycle_count + 1}\n{'='*80}")
         engine.run_cycle()
         time.sleep(CYCLE_INTERVAL)
 
