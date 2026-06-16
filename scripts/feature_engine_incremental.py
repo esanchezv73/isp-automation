@@ -1,0 +1,448 @@
+#!/usr/bin/env python3
+"""
+Feature Engine Mejorado - Lectura Incremental (SIN REDUNDANCIA)
+
+Calcula features derivadas SOLO para nuevos datos desde bgp_metrics
+y los almacena en ml_features sin generar duplicados.
+
+FREQUENCY: Cada minuto (configurable)
+MODO: Incremental (lee último timestamp, procesa SOLO nuevos)
+"""
+
+import psycopg2
+import pandas as pd
+import numpy as np
+import logging
+import os
+from datetime import datetime, timezone, timedelta
+
+# === Configuración ===
+TIMESCALEDB_HOST = 'timescaledb'
+TIMESCALEDB_PORT = 5432
+TIMESCALEDB_DB = 'bgp_failover_db'
+TIMESCALEDB_USER = 'bgp_app'
+TIMESCALEDB_PASSWORD = 'bgp_app_password'
+
+# === Configuración de Feature Engine ===
+EXECUTION_MODE = "incremental"  # ✅ MODO: incremental (sin redundancia)
+LAST_HOURS = 1  # Fallback si no hay datos previos
+BATCH_SIZE = None  # None = procesar todos los nuevos
+
+
+class TimescaleDBClient:
+    """Cliente mejorado para TimescaleDB con soporte para lectura incremental"""
+    
+    def __init__(self, host, port, database, user, password):
+        self.conn = psycopg2.connect(
+            host=host, port=port, database=database, user=user, password=password
+        )
+        logging.info(f"✅ Conectado a TimescaleDB en {host}:{port}")
+    
+    def get_last_feature_timestamp(self):
+        """
+        ✅ NUEVO: Lee el último timestamp de ml_features
+        Si está vacía, retorna None (procesar últimas LAST_HOURS)
+        """
+        try:
+            cur = self.conn.cursor()
+            cur.execute("""
+                SELECT COALESCE(MAX(time), NULL) 
+                FROM ml_features
+            """)
+            result = cur.fetchone()
+            cur.close()
+            
+            if result[0]:
+                logging.info(f"✅ Último timestamp en ml_features: {result[0]}")
+                return result[0]
+            else:
+                logging.info("ℹ️ ml_features vacía, procesará últimas horas")
+                return None
+        
+        except Exception as e:
+            logging.error(f"⚠️ Error leyendo last_timestamp: {e}")
+            return None
+    
+    def insert_ml_features(self, row):
+        """Inserta un registro de features en ml_features"""
+        try:
+            cur = self.conn.cursor()
+            
+            # Construir INSERT dinámico con las columnas del dataframe
+            columns = list(row.index)
+            placeholders = ", ".join(["%s"] * len(columns))
+            column_names = ", ".join(columns)
+            
+            query = f"""
+            INSERT INTO ml_features ({column_names})
+            VALUES ({placeholders})
+            """
+            
+            values = [row[col] for col in columns]
+            cur.execute(query, values)
+            self.conn.commit()
+            cur.close()
+        
+        except Exception as e:
+            self.conn.rollback()
+            logging.error(f"Error insertando feature: {e}")
+
+
+class FeatureEngineImproved:
+    """
+    Feature Engine mejorado con lectura incremental
+    ✅ OBJETIVO: Evitar redundancia, procesar SOLO datos nuevos
+    """
+    
+    def __init__(self):
+        self.ts_client = TimescaleDBClient(
+            host=TIMESCALEDB_HOST,
+            port=TIMESCALEDB_PORT,
+            database=TIMESCALEDB_DB,
+            user=TIMESCALEDB_USER,
+            password=TIMESCALEDB_PASSWORD
+        )
+        self.conn = self.ts_client.conn
+    
+    def load_metrics_incremental(self):
+        """
+        ✅ CORRECCIÓN: Carga SOLO nuevos datos desde última ejecución
+        
+        Si ml_features está vacía → carga últimas LAST_HOURS
+        Si ml_features tiene datos → carga desde último timestamp
+        """
+        
+        # Paso 1: Obtener último timestamp de ml_features
+        last_timestamp = self.ts_client.get_last_feature_timestamp()
+        
+        # Paso 2: Construir condición WHERE
+        if last_timestamp is None:
+            # Primera ejecución: cargar últimas LAST_HOURS
+            time_filter = f"NOW() - INTERVAL '{LAST_HOURS} hours'"
+            logging.info(f"📥 Primera ejecución: cargando últimas {LAST_HOURS} horas...")
+        else:
+            # Ejecutiones posteriores: cargar SOLO después de último timestamp
+            time_filter = f"'{last_timestamp}'::timestamptz"
+            logging.info(f"📥 Cargando SOLO datos después de: {last_timestamp}")
+        
+        # Paso 3: Ejecutar query
+        query = f"""
+        SELECT 
+            time, provider,
+            peer_latency_ms, dns_latency_ms,
+            peer_loss_pct, dns_loss_pct,
+            peer_jitter_ms, dns_jitter_ms,
+            score
+        FROM bgp_metrics
+        WHERE time > {time_filter}
+        ORDER BY time, provider
+        """
+        
+        try:
+            df = pd.read_sql(query, self.conn)
+            
+            if df.empty:
+                logging.info("ℹ️ No hay nuevos datos desde última ejecución")
+                return pd.DataFrame()
+            
+            logging.info(f"✅ Cargados {len(df)} NUEVOS registros (sin redundancia)")
+            return df
+        
+        except Exception as e:
+            logging.error(f"Error cargando métricas: {e}")
+            return pd.DataFrame()
+    
+    def calculate_derived_features(self, df):
+        """Calcula features derivadas"""
+        if df.empty:
+            return df
+        
+        logging.info("🔧 Calculando features derivadas...")
+        df = df.copy()
+        
+        df['latency_ratio'] = df['peer_latency_ms'] / (df['dns_latency_ms'] + 0.001)
+        df['total_loss_pct'] = (df['peer_loss_pct'] + df['dns_loss_pct']) / 2
+        
+        max_latency = 50.0
+        df['quality_index'] = np.clip(
+            100 - (
+                (df['peer_latency_ms'] / max_latency * 40) +
+                (df['total_loss_pct'] * 50) +
+                (df['peer_jitter_ms'] / 10 * 10)
+            ),
+            0, 100
+        )
+        
+        return df
+    
+    def calculate_temporal_features(self, df):
+        """Calcula features temporales"""
+        if df.empty:
+            return df
+        
+        logging.info("🔧 Calculando features temporales...")
+        df = df.copy()
+        
+        for provider in df['provider'].unique():
+            mask = df['provider'] == provider
+            provider_data = df.loc[mask].sort_values('time')
+            
+            df.loc[mask, 'latency_trend_5min'] = provider_data['peer_latency_ms'].rolling(
+                window=10, min_periods=1
+            ).mean().diff().fillna(0).values
+            
+            df.loc[mask, 'latency_trend_15min'] = provider_data['peer_latency_ms'].rolling(
+                window=30, min_periods=1
+            ).mean().diff().fillna(0).values
+            
+            df.loc[mask, 'latency_velocity'] = provider_data['peer_latency_ms'].diff().fillna(0).values
+            df.loc[mask, 'latency_acceleration'] = provider_data['peer_latency_ms'].diff().diff().fillna(0).values
+            
+            df.loc[mask, 'loss_spike_detected'] = (
+                provider_data['peer_loss_pct'].diff().fillna(0) > 5.0
+            ).astype(bool).values
+        
+        return df
+    
+    def calculate_rolling_statistics(self, df):
+        """Calcula estadísticas móviles"""
+        if df.empty:
+            return df
+        
+        logging.info("🔧 Calculando rolling statistics...")
+        df = df.copy()
+        
+        for provider in df['provider'].unique():
+            mask = df['provider'] == provider
+            provider_data = df.loc[mask].sort_values('time')
+            
+            df.loc[mask, 'peer_latency_mean_10'] = provider_data['peer_latency_ms'].rolling(
+                window=10, min_periods=1
+            ).mean().values
+            
+            df.loc[mask, 'peer_latency_std_10'] = provider_data['peer_latency_ms'].rolling(
+                window=10, min_periods=1
+            ).std().fillna(0).values
+            
+            df.loc[mask, 'peer_latency_min_10'] = provider_data['peer_latency_ms'].rolling(
+                window=10, min_periods=1
+            ).min().values
+            
+            df.loc[mask, 'peer_latency_max_10'] = provider_data['peer_latency_ms'].rolling(
+                window=10, min_periods=1
+            ).max().values
+            
+            df.loc[mask, 'peer_latency_p95_10'] = provider_data['peer_latency_ms'].rolling(
+                window=10, min_periods=1
+            ).apply(lambda x: x.quantile(0.95)).values
+        
+        return df
+    
+    def calculate_contextual_features(self, df):
+        """Calcula features contextuales"""
+        if df.empty:
+            return df
+        
+        logging.info("🔧 Calculando features contextuales...")
+        df = df.copy()
+        
+        df['hour_of_day'] = df['time'].dt.hour
+        df['day_of_week'] = df['time'].dt.dayofweek
+        
+        df['is_business_hours'] = (
+            (df['hour_of_day'] >= 9) & (df['hour_of_day'] < 17) &
+            (df['day_of_week'] < 5)
+        ).astype(bool)
+        
+        df['is_peak_traffic'] = (
+            ((df['hour_of_day'] >= 10) & (df['hour_of_day'] < 14)) |
+            ((df['hour_of_day'] >= 15) & (df['hour_of_day'] < 18))
+        ).astype(bool)
+        
+        df['is_weekend'] = (df['day_of_week'] >= 5).astype(bool)
+        
+        return df
+    
+    def calculate_provider_features(self, df):
+        """
+        ✅ Calcula features relacionadas con providers
+        
+        Versión CORREGIDA: usa merge() para evitar errores de longitud
+        """
+        
+        if df.empty:
+            return df
+        
+        logging.info("🔧 Calculando provider features...")
+        df = df.copy()
+        
+        # Obtener información de failovers
+        try:
+            cur = self.conn.cursor()
+            
+            # 1. Contar cambios en última hora
+            cur.execute("""
+                SELECT COUNT(*) FROM bgp_failover_events
+                WHERE time >= NOW() - INTERVAL '1 hour'
+            """)
+            changes_last_hour = cur.fetchone()[0]
+            
+            # 2. Obtener último timestamp de cambio
+            cur.execute("""
+                SELECT COALESCE(MAX(time), NOW()) FROM bgp_failover_events
+            """)
+            last_change_time = cur.fetchone()[0]
+            
+            cur.close()
+            
+            # Calcular minutos desde último cambio
+            time_since_change = (df['time'] - last_change_time).dt.total_seconds() / 60
+            
+        except Exception as e:
+            logging.warning(f"⚠️ Error obteniendo failover info: {e}")
+            changes_last_hour = 0
+            time_since_change = 0
+        
+        # Agregar campos de failovers
+        df['provider_changes_last_hour'] = changes_last_hour
+        df['time_since_last_change_min'] = time_since_change.clip(lower=0)
+        
+        # 3. Calcular scores de providers usando merge
+        # Paso 1: Crear tabla con scores por timestamp y provider
+        score_table = df[['time', 'provider', 'score']].copy()
+        
+        # Paso 2: Para cada timestamp, obtener score del provider alternativo (el otro)
+        # Crear una tabla pivoteada para acceso fácil
+        score_pivot = score_table.pivot_table(
+            index='time', 
+            columns='provider', 
+            values='score', 
+            aggfunc='first'
+        )
+        
+        # Paso 3: Calcular alternative_provider_score
+        # Para cada proveedor, el alternativo es el otro proveedor
+        df['current_provider_score'] = df['score']
+        
+        # Merge para obtener scores de ambos proveedores
+        df = df.merge(score_pivot.reset_index(), on='time', how='left')
+        
+        # Calcular alternative_provider_score
+        # Si provider es PROVIDER1, alternativo es PROVIDER2, etc.
+        providers = df['provider'].unique()
+        
+        if len(providers) == 2:
+            provider1, provider2 = sorted(providers)
+            
+            df['alternative_provider_score'] = df.apply(
+                lambda row: row[provider2] if row['provider'] == provider1 else row[provider1],
+                axis=1
+            )
+        else:
+            # Si hay solo un proveedor, alternativo es él mismo
+            df['alternative_provider_score'] = df['score']
+        
+        # Limpiar columnas temporales
+        for col in providers:
+            if col in df.columns and col != 'provider':
+                df = df.drop(columns=[col])
+        
+        # 4. Calcular diferencia de scores
+        df['score_difference'] = df['current_provider_score'] - df['alternative_provider_score']
+        
+        # 5. Verificar si excede threshold (5 puntos)
+        SWITCH_MARGIN = 5  # Mismo que en bgp_failover_engine.py
+        df['margin_exceeds_threshold'] = (df['score_difference'] > SWITCH_MARGIN).astype(bool)
+        
+        return df
+    
+    def calculate_target_variable(self, df):
+        """Calcula variable target para supervisado learning"""
+        if df.empty:
+            return df
+        
+        logging.info("🔧 Calculando target variable...")
+        df = df.copy()
+        
+        df['should_failover'] = (
+            (df['peer_loss_pct'] >= 20.0) |
+            (df['peer_latency_ms'] >= 25.0)
+        ).astype(int)
+        
+        df['was_false_positive'] = 0
+        df['optimal_threshold'] = 0.5
+        
+        return df
+    
+    def process_and_store(self):
+        """
+        Procesa nuevos features y los almacena
+        ✅ CORRECCIÓN: SOLO graba datos NUEVOS, sin redundancia
+        """
+        
+        # Paso 1: Cargar SOLO datos nuevos
+        df = self.load_metrics_incremental()
+        
+        if df.empty:
+            logging.info("ℹ️ Sin nuevos datos, nada que procesar")
+            return 0
+        
+        # Paso 2: Calcular features
+        logging.info("🔄 Procesando features...")
+        df = self.calculate_derived_features(df)
+        df = self.calculate_temporal_features(df)
+        df = self.calculate_rolling_statistics(df)
+        df = self.calculate_contextual_features(df)
+        df = self.calculate_provider_features(df)  # ✅ NUEVO
+        df = self.calculate_target_variable(df)
+        
+        # Paso 3: Validar datos
+        logging.info("✓ Validando datos...")
+        
+        # Paso 4: Grabar en BD
+        logging.info("💾 Guardando en ml_features...")
+        
+        inserted = 0
+        for idx, row in df.iterrows():
+            try:
+                self.ts_client.insert_ml_features(row)
+                inserted += 1
+            except Exception as e:
+                logging.warning(f"Error insertando fila {idx}: {e}")
+        
+        logging.info(f"✅ {inserted} NUEVOS registros grabados (sin redundancia)")
+        
+        return inserted
+
+
+def main():
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler('/var/log/feature_engine.log')
+        ]
+    )
+    
+    logging.info("=" * 80)
+    logging.info("🔧 Feature Engine: Calculando features derivadas (INCREMENTAL)")
+    logging.info("=" * 80)
+    
+    engine = FeatureEngineImproved()
+    
+    logging.info(f"⚙️ Modo: {EXECUTION_MODE.upper()}")
+    logging.info(f"⚙️ Fallback: {LAST_HOURS} horas si ml_features vacía")
+    
+    # Procesar y almacenar
+    inserted = engine.process_and_store()
+    
+    logging.info("")
+    logging.info("=" * 80)
+    logging.info("✅ Feature Engine ejecutado exitosamente")
+    logging.info("=" * 80)
+    logging.info(f"Registros grabados: {inserted} (NUEVOS, sin redundancia)")
+
+
+if __name__ == '__main__':
+    main()
