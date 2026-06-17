@@ -64,7 +64,7 @@ class ScoringWeightOptimizer:
         - peer_jitter_ms: jitter del peer
         - dns_jitter_ms: jitter del DNS
         - hour_of_day: contexto temporal
-        - is_peak: hora pico vs off-peak
+        - is_peak_traffic: hora pico vs off-peak
         - is_weekend: contexto de día
         """
         
@@ -76,7 +76,7 @@ class ScoringWeightOptimizer:
             'peer_jitter_ms',
             'dns_jitter_ms',
             'hour_of_day',
-            'is_peak',
+            'is_peak_traffic',  # ✅ CORREGIDO: is_peak → is_peak_traffic
             'is_weekend'
         ]
         
@@ -136,12 +136,17 @@ class ScoringWeightOptimizer:
         logger.info(f"   max_depth: 6")
         logger.info(f"   learning_rate: 0.1")
         
+        # ✅ NUEVO: Calcular ratio de clases para manejar desbalance
+        scale_pos_weight = (y == 0).sum() / (y == 1).sum() if (y == 1).sum() > 0 else 1.0
+        logger.info(f"   scale_pos_weight: {scale_pos_weight:.2f} (ratio desbalance)")
+        
         self.model = xgb.XGBClassifier(
             n_estimators=100,
             max_depth=6,
             learning_rate=0.1,
             subsample=0.8,
             colsample_bytree=0.8,
+            scale_pos_weight=scale_pos_weight,  # ✅ NUEVO: Manejar desbalance
             random_state=random_state,
             use_label_encoder=False,
             eval_metric='logloss',
@@ -243,7 +248,7 @@ class ScoringWeightOptimizer:
         ]['importance'].values[0]
         
         is_peak_importance = self.feature_importance[
-            self.feature_importance['feature'] == 'is_peak'
+            self.feature_importance['feature'] == 'is_peak_traffic'  # ✅ CORREGIDO
         ]['importance'].values[0]
         
         # Normalizar pesos de latencia
@@ -324,7 +329,7 @@ class ScoringWeightOptimizer:
         features_order = [
             'peer_latency_ms', 'dns_latency_ms', 'peer_loss_pct',
             'dns_loss_pct', 'peer_jitter_ms', 'dns_jitter_ms',
-            'hour_of_day', 'is_peak', 'is_weekend'
+            'hour_of_day', 'is_peak_traffic', 'is_weekend'  # ✅ CORREGIDO
         ]
         
         X = pd.DataFrame([metrics_dict])[features_order]
