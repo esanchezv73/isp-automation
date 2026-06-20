@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
 """
 Feature Engine Mejorado - Lectura Incremental (SIN REDUNDANCIA)
-
 Calcula features derivadas SOLO para nuevos datos desde bgp_metrics
 y los almacena en ml_features sin generar duplicados.
-
 FREQUENCY: Cada minuto (configurable)
 MODO: Incremental (lee último timestamp, procesa SOLO nuevos)
 """
-
 import psycopg2
 import pandas as pd
 import numpy as np
@@ -28,6 +25,10 @@ EXECUTION_MODE = "incremental"  # ✅ MODO: incremental (sin redundancia)
 LAST_HOURS = 1  # Fallback si no hay datos previos
 BATCH_SIZE = None  # None = procesar todos los nuevos
 
+# ✅ NUEVO: Constantes del motor BGP (deben coincidir con bgp_failover_engine.py)
+SUSTAINED_DEGRADATION_CYCLES = 3
+SWITCH_MARGIN = 5  # Mismo que LATENCY_THRESHOLDS['switch_margin']
+
 
 class TimescaleDBClient:
     """Cliente mejorado para TimescaleDB con soporte para lectura incremental"""
@@ -37,7 +38,7 @@ class TimescaleDBClient:
             host=host, port=port, database=database, user=user, password=password
         )
         logging.info(f"✅ Conectado a TimescaleDB en {host}:{port}")
-    
+
     def get_last_feature_timestamp(self):
         """
         ✅ NUEVO: Lee el último timestamp de ml_features
@@ -46,7 +47,7 @@ class TimescaleDBClient:
         try:
             cur = self.conn.cursor()
             cur.execute("""
-                SELECT COALESCE(MAX(time), NULL) 
+                SELECT COALESCE(MAX(time), NULL)
                 FROM ml_features
             """)
             result = cur.fetchone()
@@ -58,11 +59,10 @@ class TimescaleDBClient:
             else:
                 logging.info("ℹ️ ml_features vacía, procesará últimas horas")
                 return None
-        
         except Exception as e:
             logging.error(f"⚠️ Error leyendo last_timestamp: {e}")
             return None
-    
+
     def insert_ml_features(self, row):
         """Inserta un registro de features en ml_features"""
         try:
@@ -74,15 +74,14 @@ class TimescaleDBClient:
             column_names = ", ".join(columns)
             
             query = f"""
-            INSERT INTO ml_features ({column_names})
-            VALUES ({placeholders})
+                INSERT INTO ml_features ({column_names})
+                VALUES ({placeholders})
             """
-            
             values = [row[col] for col in columns]
+            
             cur.execute(query, values)
             self.conn.commit()
             cur.close()
-        
         except Exception as e:
             self.conn.rollback()
             logging.error(f"Error insertando feature: {e}")
@@ -103,15 +102,13 @@ class FeatureEngineImproved:
             password=TIMESCALEDB_PASSWORD
         )
         self.conn = self.ts_client.conn
-    
+
     def load_metrics_incremental(self):
         """
         ✅ CORRECCIÓN: Carga SOLO nuevos datos desde última ejecución
-        
         Si ml_features está vacía → carga últimas LAST_HOURS
         Si ml_features tiene datos → carga desde último timestamp
         """
-        
         # Paso 1: Obtener último timestamp de ml_features
         last_timestamp = self.ts_client.get_last_feature_timestamp()
         
@@ -126,16 +123,20 @@ class FeatureEngineImproved:
             logging.info(f"📥 Cargando SOLO datos después de: {last_timestamp}")
         
         # Paso 3: Ejecutar query
+        # ✅ IMPORTANTE: degradation_cycle y provider_changed podrían no existir en bgp_metrics
+        # Intentamos incluirlos, pero si no existen, PostgreSQL maneja el error
         query = f"""
-        SELECT 
-            time, provider,
-            peer_latency_ms, dns_latency_ms,
-            peer_loss_pct, dns_loss_pct,
-            peer_jitter_ms, dns_jitter_ms,
-            score
-        FROM bgp_metrics
-        WHERE time > {time_filter}
-        ORDER BY time, provider
+            SELECT
+                time, provider,
+                peer_latency_ms, dns_latency_ms,
+                peer_loss_pct, dns_loss_pct,
+                peer_jitter_ms, dns_jitter_ms,
+                score,
+                COALESCE(degradation_cycle, 0) as degradation_cycle,
+                COALESCE(provider_changed, FALSE) as provider_changed
+            FROM bgp_metrics
+            WHERE time > {time_filter}
+            ORDER BY time, provider
         """
         
         try:
@@ -147,11 +148,10 @@ class FeatureEngineImproved:
             
             logging.info(f"✅ Cargados {len(df)} NUEVOS registros (sin redundancia)")
             return df
-        
         except Exception as e:
             logging.error(f"Error cargando métricas: {e}")
             return pd.DataFrame()
-    
+
     def calculate_derived_features(self, df):
         """Calcula features derivadas"""
         if df.empty:
@@ -174,7 +174,7 @@ class FeatureEngineImproved:
         )
         
         return df
-    
+
     def calculate_temporal_features(self, df):
         """Calcula features temporales"""
         if df.empty:
@@ -203,7 +203,7 @@ class FeatureEngineImproved:
             ).astype(bool).values
         
         return df
-    
+
     def calculate_rolling_statistics(self, df):
         """Calcula estadísticas móviles"""
         if df.empty:
@@ -237,7 +237,7 @@ class FeatureEngineImproved:
             ).apply(lambda x: x.quantile(0.95)).values
         
         return df
-    
+
     def calculate_contextual_features(self, df):
         """Calcula features contextuales"""
         if df.empty:
@@ -262,14 +262,12 @@ class FeatureEngineImproved:
         df['is_weekend'] = (df['day_of_week'] >= 5).astype(bool)
         
         return df
-    
+
     def calculate_provider_features(self, df):
         """
         ✅ Calcula features relacionadas con providers
-        
         Versión CORREGIDA: usa merge() para evitar errores de longitud
         """
-        
         if df.empty:
             return df
         
@@ -297,7 +295,6 @@ class FeatureEngineImproved:
             
             # Calcular minutos desde último cambio
             time_since_change = (df['time'] - last_change_time).dt.total_seconds() / 60
-            
         except Exception as e:
             logging.warning(f"⚠️ Error obteniendo failover info: {e}")
             changes_last_hour = 0
@@ -314,9 +311,9 @@ class FeatureEngineImproved:
         # Paso 2: Para cada timestamp, obtener score del provider alternativo (el otro)
         # Crear una tabla pivoteada para acceso fácil
         score_pivot = score_table.pivot_table(
-            index='time', 
-            columns='provider', 
-            values='score', 
+            index='time',
+            columns='provider',
+            values='score',
             aggfunc='first'
         )
         
@@ -330,10 +327,8 @@ class FeatureEngineImproved:
         # Calcular alternative_provider_score
         # Si provider es PROVIDER1, alternativo es PROVIDER2, etc.
         providers = df['provider'].unique()
-        
         if len(providers) == 2:
             provider1, provider2 = sorted(providers)
-            
             df['alternative_provider_score'] = df.apply(
                 lambda row: row[provider2] if row['provider'] == provider1 else row[provider1],
                 axis=1
@@ -351,35 +346,54 @@ class FeatureEngineImproved:
         df['score_difference'] = df['current_provider_score'] - df['alternative_provider_score']
         
         # 5. Verificar si excede threshold (5 puntos)
-        SWITCH_MARGIN = 5  # Mismo que en bgp_failover_engine.py
         df['margin_exceeds_threshold'] = (df['score_difference'] > SWITCH_MARGIN).astype(bool)
         
         return df
-    
+
     def calculate_target_variable(self, df):
-        """Calcula variable target para supervisado learning"""
+        """
+        ✅ CORREGIDO: Usa provider_changed como ground truth
+        IMPORTANTE: Cada failover crea 2 registros (uno por proveedor)
+        Solo contar UNA VEZ por ciclo, no dos veces
+        
+        Features para ML:
+        - degradation_cycle: 0-3 (fase de degradación) → ORDINAL FEATURE
+        - provider_changed: 0-1 (cambio ocurrió) → TARGET VARIABLE
+        """
         if df.empty:
             return df
         
-        logging.info("🔧 Calculando target variable...")
+        logging.info("🔧 Calculando target variable (usando provider_changed como ground truth)...")
         df = df.copy()
         
-        df['should_failover'] = (
-            (df['peer_loss_pct'] >= 20.0) |
-            (df['peer_latency_ms'] >= 25.0)
-        ).astype(int)
+        # ✅ NUEVO: should_failover = provider_changed (fuente de verdad)
+        df['should_failover'] = df['provider_changed'].astype(int)
         
+        # ✅ CORRECCIÓN: Contar failovers correctamente
+        # Cada failover crea 2 registros (1 por PROVIDER1 y 1 por PROVIDER2)
+        # Solo contar DISTINCT ciclos con cambio
+        failover_cycles = df[df['provider_changed'] == True]['time'].nunique()
+        
+        # Contar registros totales (2 por cada failover: uno por proveedor)
+        total_records = len(df)
+        
+        # Estadísticas
+        logging.info(f"✅ Target calculado:")
+        logging.info(f"   - Total registros en dataset: {total_records}")
+        logging.info(f"   - Failovers REALES (ciclos distintos): {failover_cycles}")
+        logging.info(f"   - Registros con should_failover=1: {df['should_failover'].sum()} (2 por cada failover)")
+        
+        # Columnas adicionales para análisis post-entrenamiento
         df['was_false_positive'] = 0
         df['optimal_threshold'] = 0.5
         
         return df
-    
+
     def process_and_store(self):
         """
         Procesa nuevos features y los almacena
         ✅ CORRECCIÓN: SOLO graba datos NUEVOS, sin redundancia
         """
-        
         # Paso 1: Cargar SOLO datos nuevos
         df = self.load_metrics_incremental()
         
@@ -394,15 +408,15 @@ class FeatureEngineImproved:
         df = self.calculate_rolling_statistics(df)
         df = self.calculate_contextual_features(df)
         df = self.calculate_provider_features(df)  # ✅ NUEVO
-        df = self.calculate_target_variable(df)
+        df = self.calculate_target_variable(df)  # ✅ CORREGIDO
         
         # Paso 3: Validar datos
         logging.info("✓ Validando datos...")
         
         # Paso 4: Grabar en BD
         logging.info("💾 Guardando en ml_features...")
-        
         inserted = 0
+        
         for idx, row in df.iterrows():
             try:
                 self.ts_client.insert_ml_features(row)
@@ -411,7 +425,6 @@ class FeatureEngineImproved:
                 logging.warning(f"Error insertando fila {idx}: {e}")
         
         logging.info(f"✅ {inserted} NUEVOS registros grabados (sin redundancia)")
-        
         return inserted
 
 
@@ -433,6 +446,8 @@ def main():
     
     logging.info(f"⚙️ Modo: {EXECUTION_MODE.upper()}")
     logging.info(f"⚙️ Fallback: {LAST_HOURS} horas si ml_features vacía")
+    logging.info(f"⚙️ SUSTAINED_DEGRADATION_CYCLES: {SUSTAINED_DEGRADATION_CYCLES}")
+    logging.info(f"⚙️ SWITCH_MARGIN: {SWITCH_MARGIN}")
     
     # Procesar y almacenar
     inserted = engine.process_and_store()
