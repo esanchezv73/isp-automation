@@ -106,7 +106,7 @@ def main():
     print("-" * 80)
     
     df = load_training_data_from_ml_features(
-        timescaledb_password='tu_contraseña',
+        timescaledb_password='bgp_app_password',
         days=30
     )
     
