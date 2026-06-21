@@ -70,6 +70,9 @@ def load_training_data_from_ml_features(
         COALESCE(is_business_hours::int, 0) as is_business_hours,
         COALESCE(is_peak_traffic::int, 0) as is_peak_traffic,
         COALESCE(is_weekend::int, 0) as is_weekend,
+        -- ✅ NUEVO: Degradation tracking
+        COALESCE(degradation_cycle, 0) as degradation_cycle,
+        COALESCE(provider_changed::int, 0) as provider_changed,
         -- Target
         should_failover
     FROM ml_features
@@ -83,9 +86,27 @@ def load_training_data_from_ml_features(
     logger.info(f"✅ Cargados {len(df)} registros de ml_features")
     logger.info(f"   Fechas: {df['time'].min()} a {df['time'].max()}")
     logger.info(f"   Providers: {df['provider'].unique()}")
+    
+    # ✅ NUEVO: Verificar que degradation_cycle se cargó
+    if 'degradation_cycle' in df.columns:
+        logger.info(f"   ✓ degradation_cycle cargado:")
+        logger.info(f"     Valores únicos: {sorted(df['degradation_cycle'].unique())}")
+    else:
+        logger.warning(f"   ✗ degradation_cycle NO ENCONTRADO")
+    
+    if 'provider_changed' in df.columns:
+        logger.info(f"   ✓ provider_changed cargado:")
+        logger.info(f"     Valores: {df['provider_changed'].unique()}")
+    else:
+        logger.warning(f"   ✗ provider_changed NO ENCONTRADO")
+    
     logger.info(f"   Target distribution:")
     logger.info(f"     - No failover: {(df['should_failover']==0).sum()}")
     logger.info(f"     - Failover: {(df['should_failover']==1).sum()}")
+    
+    # ✅ NUEVO: Conteo correcto de failovers únicos
+    unique_failover_times = df[df['should_failover'] == 1]['time'].nunique()
+    logger.info(f"   Failovers ÚNICOS (ciclos distintos): {unique_failover_times}")
     
     return df
 
