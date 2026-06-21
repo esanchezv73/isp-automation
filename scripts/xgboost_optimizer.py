@@ -63,6 +63,7 @@ class ScoringWeightOptimizer:
         - dns_loss_pct: pérdida en DNS
         - peer_jitter_ms: jitter del peer
         - dns_jitter_ms: jitter del DNS
+        - degradation_cycle: fase de degradación (0-3) ✅ NUEVO
         - hour_of_day: contexto temporal
         - is_peak_traffic: hora pico vs off-peak
         - is_weekend: contexto de día
@@ -75,6 +76,7 @@ class ScoringWeightOptimizer:
             'dns_loss_pct',
             'peer_jitter_ms',
             'dns_jitter_ms',
+            'degradation_cycle',            # ✅ NUEVO: Fase de degradación
             'hour_of_day',
             'is_peak_traffic',  # ✅ CORREGIDO: is_peak → is_peak_traffic
             'is_weekend'
@@ -122,6 +124,15 @@ class ScoringWeightOptimizer:
         logger.info(f"   Training:  {len(X_train):6d} samples")
         logger.info(f"   Testing:   {len(X_test):6d} samples")
         logger.info(f"   Total:     {len(X):6d} samples")
+        logger.info(f"   Features:  {X.shape[1]}")
+        
+        # ✅ NUEVO: Verificar que degradation_cycle está presente
+        if 'degradation_cycle' in X.columns:
+            logger.info(f"\n✓ degradation_cycle PRESENTE:")
+            logger.info(f"   Valores únicos: {sorted(X['degradation_cycle'].unique())}")
+            logger.info(f"   Rango: {X['degradation_cycle'].min()} - {X['degradation_cycle'].max()}")
+        else:
+            logger.warning(f"\n✗ degradation_cycle NO ENCONTRADO en features")
         
         logger.info(f"\n⚖️ Balance de clases:")
         for label in [0, 1]:
@@ -251,6 +262,11 @@ class ScoringWeightOptimizer:
             self.feature_importance['feature'] == 'is_peak_traffic'  # ✅ CORREGIDO
         ]['importance'].values[0]
         
+        # ✅ NUEVO: Extraer importancia de degradation_cycle
+        degradation_importance = self.feature_importance[
+            self.feature_importance['feature'] == 'degradation_cycle'
+        ]['importance'].values[0]
+        
         # Normalizar pesos de latencia
         total_latency = peer_lat + dns_lat
         if total_latency > 0:
@@ -303,12 +319,27 @@ class ScoringWeightOptimizer:
         else:
             logger.info(f"   ➜ Thresholds pueden ser iguales durante el día")
         
+        # ✅ NUEVO: Mostrar importancia de degradation_cycle
+        logger.info(f"\n📊 IMPORTANCIA DE DEGRADACIÓN (degradation_cycle):")
+        logger.info(f"   Degradation Cycle Importance: {degradation_importance:.4f}")
+        logger.info(f"   Importancia: {degradation_importance*100:.1f}%")
+        
+        if degradation_importance > 0.15:
+            logger.info(f"   ➜ CRÍTICA: degradation_cycle es MUY IMPORTANTE para failover")
+            logger.info(f"     Insight: La fase de degradación es el predictor clave")
+            logger.info(f"     El modelo aprende: ciclo 1,2 → no failover | ciclo 3 → failover")
+        elif degradation_importance > 0.05:
+            logger.info(f"   ➜ IMPORTANTE: degradation_cycle contribuye significativamente")
+        else:
+            logger.info(f"   ➜ NOTA: degradation_cycle tiene baja importancia")
+        
         return {
             'peer_latency_weight': float(peer_weight),
             'dns_latency_weight': float(dns_weight),
             'loss_importance': float(loss_importance),
             'jitter_importance': float(jitter_importance),
             'context_importance': float(is_peak_importance),
+            'degradation_importance': float(degradation_importance),  # ✅ NUEVO
             'all_importances': self.feature_importance.to_dict('list')
         }
     
@@ -329,6 +360,7 @@ class ScoringWeightOptimizer:
         features_order = [
             'peer_latency_ms', 'dns_latency_ms', 'peer_loss_pct',
             'dns_loss_pct', 'peer_jitter_ms', 'dns_jitter_ms',
+            'degradation_cycle',  # ✅ NUEVO
             'hour_of_day', 'is_peak_traffic', 'is_weekend'  # ✅ CORREGIDO
         ]
         
