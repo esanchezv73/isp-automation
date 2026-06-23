@@ -5,6 +5,9 @@ Calcula features derivadas SOLO para nuevos datos desde bgp_metrics
 y los almacena en ml_features sin generar duplicados.
 FREQUENCY: Cada minuto (configurable)
 MODO: Incremental (lee último timestamp, procesa SOLO nuevos)
+
+✅ CORRECCIÓN: Eliminadas columnas optimal_threshold y was_false_positive
+   (No son features de los datos, son hiperparámetros del modelo)
 """
 import psycopg2
 import pandas as pd
@@ -353,12 +356,15 @@ class FeatureEngineImproved:
     def calculate_target_variable(self, df):
         """
         ✅ CORREGIDO: Usa provider_changed como ground truth
+        ✅ LIMPIEZA: Eliminadas columnas optimal_threshold y was_false_positive
+           (No son features reales, son hiperparámetros del modelo)
+        
         IMPORTANTE: Cada failover crea 2 registros (uno por proveedor)
         Solo contar UNA VEZ por ciclo, no dos veces
         
         Features para ML:
         - degradation_cycle: 0-3 (fase de degradación) → ORDINAL FEATURE
-        - provider_changed: 0-1 (cambio ocurrió) → TARGET VARIABLE
+        - provider_changed: 0-1 (cambio ocurrió) → TARGET VARIABLE (should_failover)
         """
         if df.empty:
             return df
@@ -383,9 +389,8 @@ class FeatureEngineImproved:
         logging.info(f"   - Failovers REALES (ciclos distintos): {failover_cycles}")
         logging.info(f"   - Registros con should_failover=1: {df['should_failover'].sum()} (2 por cada failover)")
         
-        # Columnas adicionales para análisis post-entrenamiento
-        df['was_false_positive'] = 0
-        df['optimal_threshold'] = 0.5
+        # ❌ ELIMINADO: optimal_threshold (no es una feature, es hiperparámetro)
+        # ❌ ELIMINADO: was_false_positive (se calcula post-entrenamiento)
         
         return df
 
