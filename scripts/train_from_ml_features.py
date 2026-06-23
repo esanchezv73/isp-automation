@@ -70,8 +70,8 @@ def load_training_data_from_ml_features(
         COALESCE(is_business_hours::int, 0) as is_business_hours,
         COALESCE(is_peak_traffic::int, 0) as is_peak_traffic,
         COALESCE(is_weekend::int, 0) as is_weekend,
-        -- ✅ NUEVO: Degradation tracking
-        COALESCE(degradation_cycle, 0) as degradation_cycle,
+        COALESCE(score_difference, 0) as score_difference,
+        COALESCE(margin_exceeds_threshold::int, 0) as margin_exceeds_threshold,
         COALESCE(provider_changed::int, 0) as provider_changed,
         -- Target
         should_failover
