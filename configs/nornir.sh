@@ -23,3 +23,5 @@ apt install python3-psycopg2 -y
 sleep 1
 apt install postgresql-client -y
 sleep 1
+apt install python3-numpy
+sleep 1
