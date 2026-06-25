@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
 """
-BGP Failover Engine VERSIÓN CON DETECCIÓN COMBINADA DE ANOMALÍAS
+BGP Failover Engine VERSIÓN CON DETECCIÓN COMBINADA
 - Lógica de switch_margin CORRECTA
 - Persistencia de cycle_number y current_provider
 - TimescaleDB integrado
-- ✅ NUEVO: Detección COMBINADA de anomalías (3 fuentes):
-  ├─ 1. Z-score (anomalía relativa al historial)
-  ├─ 2. Umbral absoluto (latencia > X ms siempre es mala)
-  └─ 3. Diferencia relativa vs provider alternativo
-- ✅ Ventana de 10 ciclos para rolling statistics
+- ✅ DETECCIÓN COMBINADA: Z-score + Absolute + Relative
+- ✅ NUEVO: Envío de todas las métricas a nuevas columnas de bgp_metrics
 - ✅ Mantiene historial post-failover (penalización loss x10)
+- ✅ Log mejorado: μ en lugar de Abs para mayor claridad
 """
 import requests
 import time
@@ -73,12 +71,11 @@ Z_SCORE_THRESHOLDS = {
     'critical': 3.5      # Z ≥ 3.5: Anomalía severa
 }
 
-# ✅ NUEVO: Umbrales ABSOLUTOS de latencia (independientes del historial)
-# Basados en estándares ITU-T G.1010 y SLAs de ISPs Tier-1
+# ✅ NUEVO: Umbrales ABSOLUTOS de latencia
 ABSOLUTE_LATENCY_THRESHOLDS = {
-    'peer_warning': 12.0,    # ms - Umbral de alerta
-    'peer_degraded': 15.0,   # ms - Degradación significativa
-    'peer_critical': 25.0,   # ms - Crítico
+    'peer_warning': 12.0,    # ms
+    'peer_degraded': 15.0,   # ms
+    'peer_critical': 25.0,   # ms
     'dns_warning': 15.0,     # ms
     'dns_degraded': 20.0,    # ms
     'dns_critical': 30.0     # ms
@@ -86,13 +83,12 @@ ABSOLUTE_LATENCY_THRESHOLDS = {
 
 # ✅ NUEVO: Umbrales de DIFERENCIA RELATIVA vs provider alternativo
 RELATIVE_DIFF_THRESHOLDS = {
-    'warning': 5.0,      # ms - Diferencia notable
-    'degraded': 10.0,    # ms - Diferencia significativa
-    'critical': 15.0     # ms - Diferencia crítica
+    'warning': 5.0,      # ms
+    'degraded': 10.0,    # ms
+    'critical': 15.0     # ms
 }
 
 # ✅ Tamaño del historial para rolling statistics
-# 10 ciclos × 30s = 5 minutos de ventana
 ROLLING_HISTORY_SIZE = 10
 
 
@@ -176,6 +172,7 @@ class ElasticsearchClient:
 
             for provider_name, metrics in all_providers_metrics.items():
                 prefix = provider_name.lower()
+                # Métricas base
                 doc[f"{prefix}_score"] = metrics["score"]
                 doc[f"{prefix}_is_healthy"] = metrics["is_healthy"]
                 doc[f"{prefix}_is_primary"] = metrics["is_primary"]
@@ -195,12 +192,9 @@ class ElasticsearchClient:
                 doc[f"{prefix}_rolling_mean"] = metrics.get("rolling_mean", 0.0)
                 doc[f"{prefix}_rolling_std"] = metrics.get("rolling_std", 0.0)
                 doc[f"{prefix}_rolling_p95"] = metrics.get("rolling_p95", 0.0)
-                # ✅ NUEVO: Detección absoluta
                 doc[f"{prefix}_absolute_severity"] = metrics.get("absolute_severity", "normal")
-                # ✅ NUEVO: Detección relativa
                 doc[f"{prefix}_relative_diff_ms"] = metrics.get("relative_diff_ms", 0.0)
                 doc[f"{prefix}_relative_severity"] = metrics.get("relative_severity", "normal")
-                # ✅ NUEVO: Severidad COMBINADA (la más importante)
                 doc[f"{prefix}_combined_severity"] = metrics.get("combined_severity", "normal")
                 doc[f"{prefix}_is_combined_anomaly"] = metrics.get("is_combined_anomaly", False)
                 # Campos de observabilidad
@@ -418,9 +412,6 @@ class BGPFailoverEngine:
     def detect_z_score_anomaly(self, provider: str, metrics: LatencyMetrics) -> Dict[str, Any]:
         """
         ✅ DETECCIÓN 1: Anomalía basada en Z-score (relativa al historial)
-        
-        Detecta cuando la latencia actual se desvía significativamente del
-        comportamiento histórico reciente del mismo provider.
         """
         rolling_stats = self.calculate_rolling_stats(provider)
         
@@ -441,7 +432,6 @@ class BGPFailoverEngine:
             rolling_stats['std']
         )
         
-        # Clasificar severidad
         if z_score >= Z_SCORE_THRESHOLDS['critical']:
             severity = 'critical'
             is_anomaly = True
@@ -468,15 +458,10 @@ class BGPFailoverEngine:
     def detect_absolute_anomaly(self, metrics: LatencyMetrics) -> Dict[str, Any]:
         """
         ✅ DETECCIÓN 2: Anomalía basada en umbrales ABSOLUTOS
-        
-        Detecta cuando la latencia supera umbrales fijos, independientemente
-        del historial. Útil para detectar degradaciones sostenidas donde el
-        Z-score se "normaliza" porque toda la ventana está contaminada.
         """
         peer_latency = metrics.peer_avg
         dns_latency = metrics.dns_avg
         
-        # Determinar severidad basada en el peor de los dos (peer o dns)
         if (peer_latency >= ABSOLUTE_LATENCY_THRESHOLDS['peer_critical'] or
             dns_latency >= ABSOLUTE_LATENCY_THRESHOLDS['dns_critical']):
             severity = 'critical'
@@ -503,11 +488,7 @@ class BGPFailoverEngine:
     def detect_relative_anomaly(self, provider: str, metrics: LatencyMetrics) -> Dict[str, Any]:
         """
         ✅ DETECCIÓN 3: Anomalía basada en DIFERENCIA RELATIVA vs provider alternativo
-        
-        Detecta cuando un provider es significativamente peor que el otro.
-        Útil para detectar problemas asimétricos entre providers.
         """
-        # Obtener el provider alternativo
         other_provider = [p for p in PROVIDERS if p != provider][0]
         other_history = self.metrics_history[other_provider]
         
@@ -519,14 +500,11 @@ class BGPFailoverEngine:
                 'other_provider_avg': 0.0
             }
         
-        # Usar promedio de los últimos 3 ciclos del provider alternativo
         recent_other = other_history[-3:]
         other_avg = np.mean([m.peer_avg for m in recent_other if m.peer_avg < 900])
         
-        # Calcular diferencia
         relative_diff = metrics.peer_avg - other_avg
         
-        # Clasificar severidad
         if relative_diff >= RELATIVE_DIFF_THRESHOLDS['critical']:
             severity = 'critical'
             is_anomaly = True
@@ -551,41 +529,26 @@ class BGPFailoverEngine:
     def detect_combined_anomaly(self, provider: str, metrics: LatencyMetrics) -> Dict[str, Any]:
         """
         ✅ DETECCIÓN COMBINADA: Combina las 3 fuentes de detección
-        
-        Lógica:
-        - Si CUALQUIERA de las 3 detecciones indica anomalía → hay anomalía
-        - La severidad COMBINADA es el MÁXIMO de las 3 severidades
-        - Esto garantiza detección robusta incluso cuando una fuente falla
-        
-        Ventajas:
-        1. Z-score detecta spikes súbitos
-        2. Umbral absoluto detecta degradaciones sostenidas
-        3. Diferencia relativa detecta problemas asimétricos
         """
-        # Ejecutar las 3 detecciones
         z_info = self.detect_z_score_anomaly(provider, metrics)
         absolute_info = self.detect_absolute_anomaly(metrics)
         relative_info = self.detect_relative_anomaly(provider, metrics)
         
-        # Mapeo de severidades a niveles numéricos
         severity_levels = {'normal': 0, 'warning': 1, 'degraded': 2, 'critical': 3}
         
         z_level = severity_levels[z_info['severity']]
         absolute_level = severity_levels[absolute_info['severity']]
         relative_level = severity_levels[relative_info['severity']]
         
-        # ✅ Severidad combinada = MÁXIMO de las 3
         combined_level = max(z_level, absolute_level, relative_level)
         combined_severity = [k for k, v in severity_levels.items() if v == combined_level][0]
         
-        # ✅ Es anomalía si CUALQUIERA de las 3 lo indica
         is_combined_anomaly = (
             z_info['is_anomaly'] or
             absolute_info['is_anomaly'] or
             relative_info['is_anomaly']
         )
         
-        # Determinar qué fuentes contribuyeron a la anomalía
         contributing_sources = []
         if z_info['is_anomaly']:
             contributing_sources.append(f"Z-score({z_info['z_score']:+.2f})")
@@ -595,24 +558,19 @@ class BGPFailoverEngine:
             contributing_sources.append(f"Relative({relative_info['relative_diff_ms']:+.1f}ms)")
         
         return {
-            # Detección Z-score
             'z_score': z_info['z_score'],
             'z_score_severity': z_info['severity'],
             'rolling_mean': z_info['rolling_mean'],
             'rolling_std': z_info['rolling_std'],
             'rolling_p95': z_info['rolling_p95'],
             'history_count': z_info['history_count'],
-            # Detección absoluta
             'absolute_severity': absolute_info['severity'],
-            # Detección relativa
             'relative_diff_ms': relative_info['relative_diff_ms'],
             'relative_severity': relative_info['severity'],
             'other_provider_avg': relative_info['other_provider_avg'],
-            # Detección COMBINADA (la más importante)
             'combined_severity': combined_severity,
             'is_combined_anomaly': is_combined_anomaly,
             'contributing_sources': contributing_sources,
-            # Niveles numéricos para análisis
             'z_level': z_level,
             'absolute_level': absolute_level,
             'relative_level': relative_level
@@ -621,12 +579,6 @@ class BGPFailoverEngine:
     def should_switch_provider(self) -> Tuple[str, str, Dict[str, Dict]]:
         """
         ✅ MEJORADO: Lógica de failover con DETECCIÓN COMBINADA
-        
-        Flujo de decisión:
-        1. Calcular scores y detección combinada para cada provider
-        2. Si hay anomalía combinada severa (≥degraded) → contar como degradación
-        3. Si switch_margin se supera → contar como degradación
-        4. Si degradation_counter >= SUSTAINED_DEGRADATION_CYCLES → FAILOVER
         """
         provider_scores = {}
         combined_anomaly_data = {}
@@ -639,16 +591,13 @@ class BGPFailoverEngine:
                     dns_loss=100.0, peer_stddev=0.0, dns_stddev=0.0
                 )
             
-            # ✅ Expandir historial a ROLLING_HISTORY_SIZE (10 ciclos)
             self.metrics_history[provider].append(metrics)
             if len(self.metrics_history[provider]) > ROLLING_HISTORY_SIZE:
                 self.metrics_history[provider].pop(0)
             
-            # ✅ NUEVO: Detectar anomalía COMBINADA
             anomaly_info = self.detect_combined_anomaly(provider, metrics)
             combined_anomaly_data[provider] = anomaly_info
             
-            # Calcular score promedio (últimos 3 ciclos para suavizar)
             recent_metrics = self.metrics_history[provider][-3:]
             score_avg = sum(m.quality_score for m in recent_metrics) / len(recent_metrics)
             
@@ -659,7 +608,7 @@ class BGPFailoverEngine:
                 'anomaly_info': anomaly_info
             }
 
-        # Log detallado de scores y detección combinada
+        # ✅ MEJORA: Log con μ en lugar de Abs para mayor claridad
         logging.info("📈 Scores promedio y detección COMBINADA:")
         for provider in PROVIDERS:
             score = provider_scores[provider]['score']
@@ -667,7 +616,6 @@ class BGPFailoverEngine:
             current = "⭐" if provider == self.current_primary_provider else "  "
             a_info = combined_anomaly_data[provider]
             
-            # Emoji según severidad COMBINADA
             severity_emoji = {
                 'normal': '🟢',
                 'warning': '🟡',
@@ -675,7 +623,6 @@ class BGPFailoverEngine:
                 'critical': '🔴'
             }.get(a_info['combined_severity'], '⚪')
             
-            # Construir string de fuentes contribuyentes
             sources_str = ""
             if a_info['contributing_sources']:
                 sources_str = " ← " + ", ".join(a_info['contributing_sources'])
@@ -683,7 +630,7 @@ class BGPFailoverEngine:
             logging.info(
                 f"   {current} {provider}: score={score:.2f} {health} | "
                 f"COMBINADO={a_info['combined_severity'].upper()}{severity_emoji} "
-                f"[Z={a_info['z_score']:+.2f}, Abs={a_info['rolling_mean']:.1f}ms, "
+                f"[Z={a_info['z_score']:+.2f}, μ={a_info['rolling_mean']:.1f}ms, "
                 f"Rel={a_info['relative_diff_ms']:+.1f}ms]{sources_str}"
             )
 
@@ -692,22 +639,18 @@ class BGPFailoverEngine:
         current_score = provider_scores[self.current_primary_provider]['score']
         score_diff = current_score - best_score
 
-        # ✅ NUEVO: Verificar si hay anomalía COMBINADA severa en el provider actual
         current_anomaly = combined_anomaly_data[self.current_primary_provider]
         has_severe_anomaly = current_anomaly['combined_severity'] in ['degraded', 'critical']
         
         if best_provider != self.current_primary_provider:
-            # ✅ LÓGICA MEJORADA: Verificar switch_margin O anomalía combinada
             if score_diff > LATENCY_THRESHOLDS['switch_margin'] or has_severe_anomaly:
                 
-                # Determinar razón de degradación
                 if has_severe_anomaly:
                     sources = ", ".join(current_anomaly['contributing_sources']) if current_anomaly['contributing_sources'] else "anomalía combinada"
                     reason_type = f"anomalía COMBINADA [{current_anomaly['combined_severity']}]: {sources}"
                 else:
                     reason_type = f"diferencia de score ({score_diff:.2f} > {LATENCY_THRESHOLDS['switch_margin']})"
                 
-                # Contar degradación
                 if self.better_provider_candidate == best_provider:
                     self.degradation_counter += 1
                     logging.info(
@@ -722,18 +665,14 @@ class BGPFailoverEngine:
                         f"[{reason_type}]"
                     )
 
-                # Verificar si cumple para cambiar
                 if not provider_scores[self.current_primary_provider]['is_healthy']:
                     return best_provider, f"Cambio inmediato: {best_provider}", provider_scores
 
-                # ✅ FAILOVER cuando llega a N ciclos sostenidos
                 if self.degradation_counter >= SUSTAINED_DEGRADATION_CYCLES:
                     return best_provider, f"{best_provider} mejor por {score_diff:.2f} puntos ({SUSTAINED_DEGRADATION_CYCLES} ciclos)", provider_scores
 
-                # Return cuando aún no llega al umbral
                 return self.current_primary_provider, f"Degradación en progreso: {self.degradation_counter}/{SUSTAINED_DEGRADATION_CYCLES} ciclos", provider_scores
             else:
-                # Diferencia NO significativa → reiniciar contador
                 self.degradation_counter = 0
                 self.better_provider_candidate = None
                 logging.info(f"✅ Diferencia insuficiente ({score_diff:.2f} < {LATENCY_THRESHOLDS['switch_margin']}) y sin anomalía combinada")
@@ -758,7 +697,10 @@ class BGPFailoverEngine:
         self.current_primary_provider = new_provider
 
     def send_metrics_to_timescaledb(self, cycle_data: Dict[str, Any], all_providers_metrics: Dict[str, Dict]):
-        """Envía métricas a TimescaleDB"""
+        """
+        ✅ ACTUALIZADO: Envía métricas a TimescaleDB incluyendo nuevas columnas
+        de detección combinada
+        """
         if not self.ts_client:
             return
         try:
@@ -769,6 +711,7 @@ class BGPFailoverEngine:
                     'provider': provider_name,
                     'peer_ip': self.provider_peer_ip_map.get(provider_name, ''),
                     'peer_asn': self.provider_asn_map.get(provider_name),
+                    # Métricas base
                     'peer_latency_ms': round(metrics["peer_latency_ms"], 2),
                     'peer_jitter_ms': round(metrics["peer_jitter_ms"], 2),
                     'peer_loss_pct': round(metrics["peer_loss_pct"], 2),
@@ -779,17 +722,21 @@ class BGPFailoverEngine:
                     'weighted_latency': round((metrics["peer_latency_ms"] * 0.7) + (metrics["dns_latency_ms"] * 0.3), 2),
                     'loss_penalty': round(((metrics["peer_loss_pct"] + metrics["dns_loss_pct"]) / 2) * 10, 2),
                     'jitter_penalty': round(((metrics["peer_jitter_ms"] + metrics["dns_jitter_ms"]) / 2) * 0.5, 2),
-                    # ✅ NUEVO: Campos de detección COMBINADA
+                    # ✅ NUEVO: Campos de Z-score (detección relativa)
                     'z_score_peer': round(metrics.get("z_score_peer", 0.0), 2),
                     'z_score_severity': metrics.get("z_score_severity", "normal"),
                     'rolling_mean': round(metrics.get("rolling_mean", 0.0), 2),
                     'rolling_std': round(metrics.get("rolling_std", 0.0), 2),
                     'rolling_p95': round(metrics.get("rolling_p95", 0.0), 2),
+                    # ✅ NUEVO: Campos de detección absoluta
                     'absolute_severity': metrics.get("absolute_severity", "normal"),
+                    # ✅ NUEVO: Campos de detección relativa
                     'relative_diff_ms': round(metrics.get("relative_diff_ms", 0.0), 2),
                     'relative_severity': metrics.get("relative_severity", "normal"),
+                    # ✅ NUEVO: Campos de detección COMBINADA
                     'combined_severity': metrics.get("combined_severity", "normal"),
                     'is_combined_anomaly': metrics.get("is_combined_anomaly", False),
+                    # Campos de control
                     'current_provider': cycle_data["current_provider"],
                     'provider_changed': cycle_data["provider_changed"],
                     'provider_change_reason': cycle_data.get("change_reason", "") if cycle_data["provider_changed"] else "",
@@ -817,7 +764,6 @@ class BGPFailoverEngine:
             logging.error(f"❌ Error enviando a TimescaleDB: {e}")
 
     def _determine_quality_status(self, metrics: Dict) -> str:
-        # ✅ MEJORADO: Considerar combined_severity
         combined_severity = metrics.get("combined_severity", "normal")
         
         if metrics["has_latency_critical"] or metrics["peer_loss_pct"] >= 20:
@@ -865,7 +811,7 @@ class BGPFailoverEngine:
                     "dns_loss_pct": round(metrics.dns_loss, 2),
                     # Metadata
                     "ip_version": f"IPv{IP_VERSIONS.get(provider, '?')}",
-                    # ✅ NUEVO: Métricas de detección COMBINADA
+                    # ✅ NUEVO: Métricas de detección COMBINADA (para BD y ES)
                     "z_score_peer": a_info['z_score'],
                     "z_score_severity": a_info['z_score_severity'],
                     "rolling_mean": a_info['rolling_mean'],
