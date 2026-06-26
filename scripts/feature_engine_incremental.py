@@ -3,11 +3,12 @@
 Feature Engine Mejorado - Lectura Incremental (SIN REDUNDANCIA)
 Calcula features derivadas SOLO para nuevos datos desde bgp_metrics
 y los almacena en ml_features sin generar duplicados.
-FREQUENCY: Cada minuto (configurable)
-MODO: Incremental (lee último timestamp, procesa SOLO nuevos)
 
-✅ CORRECCIÓN: Eliminadas columnas optimal_threshold y was_false_positive
-   (No son features de los datos, son hiperparámetros del modelo)
+✅ CORRECCIÓN: 
+- Eliminadas columnas redundantes (peer_latency_mean_10, etc.)
+- Ventana de rolling statistics reducida de 10 a 5 ciclos
+- Features de detección combinada (Z-score, Absolute, Relative)
+- Fix: divide by zero en cálculo de Z-score
 """
 import psycopg2
 import pandas as pd
@@ -24,13 +25,39 @@ TIMESCALEDB_USER = 'bgp_app'
 TIMESCALEDB_PASSWORD = 'bgp_app_password'
 
 # === Configuración de Feature Engine ===
-EXECUTION_MODE = "incremental"  # ✅ MODO: incremental (sin redundancia)
-LAST_HOURS = 1  # Fallback si no hay datos previos
-BATCH_SIZE = None  # None = procesar todos los nuevos
+EXECUTION_MODE = "incremental"
+LAST_HOURS = 2  # Fallback si no hay datos previos
+BATCH_SIZE = None
 
-# ✅ NUEVO: Constantes del motor BGP (deben coincidir con bgp_failover_engine.py)
+# ✅ Constantes del motor BGP
 SUSTAINED_DEGRADATION_CYCLES = 3
-SWITCH_MARGIN = 5  # Mismo que LATENCY_THRESHOLDS['switch_margin']
+SWITCH_MARGIN = 5
+
+# ✅ Ventana de rolling statistics REDUCIDA de 10 a 5 ciclos
+ROLLING_WINDOW = 5  # 5 ciclos × 30s = 2.5 minutos
+
+# ✅ Umbrales de detección combinada
+Z_SCORE_THRESHOLDS = {
+    'normal': 2.0,
+    'warning': 2.5,
+    'degraded': 3.0,
+    'critical': 3.5
+}
+
+ABSOLUTE_LATENCY_THRESHOLDS = {
+    'peer_warning': 12.0,
+    'peer_degraded': 15.0,
+    'peer_critical': 25.0,
+    'dns_warning': 15.0,
+    'dns_degraded': 20.0,
+    'dns_critical': 30.0
+}
+
+RELATIVE_DIFF_THRESHOLDS = {
+    'warning': 5.0,
+    'degraded': 10.0,
+    'critical': 15.0
+}
 
 
 class TimescaleDBClient:
@@ -43,10 +70,7 @@ class TimescaleDBClient:
         logging.info(f"✅ Conectado a TimescaleDB en {host}:{port}")
 
     def get_last_feature_timestamp(self):
-        """
-        ✅ NUEVO: Lee el último timestamp de ml_features
-        Si está vacía, retorna None (procesar últimas LAST_HOURS)
-        """
+        """Lee el último timestamp de ml_features"""
         try:
             cur = self.conn.cursor()
             cur.execute("""
@@ -94,6 +118,7 @@ class FeatureEngineImproved:
     """
     Feature Engine mejorado con lectura incremental
     ✅ OBJETIVO: Evitar redundancia, procesar SOLO datos nuevos
+    ✅ CORRECCIÓN: Sin columnas redundantes, ventana de 5 ciclos
     """
     
     def __init__(self):
@@ -109,25 +134,18 @@ class FeatureEngineImproved:
     def load_metrics_incremental(self):
         """
         ✅ CORRECCIÓN: Carga SOLO nuevos datos desde última ejecución
-        Si ml_features está vacía → carga últimas LAST_HOURS
-        Si ml_features tiene datos → carga desde último timestamp
+        Incluye columnas de detección combinada desde bgp_metrics
         """
-        # Paso 1: Obtener último timestamp de ml_features
         last_timestamp = self.ts_client.get_last_feature_timestamp()
         
-        # Paso 2: Construir condición WHERE
         if last_timestamp is None:
-            # Primera ejecución: cargar últimas LAST_HOURS
             time_filter = f"NOW() - INTERVAL '{LAST_HOURS} hours'"
             logging.info(f"📥 Primera ejecución: cargando últimas {LAST_HOURS} horas...")
         else:
-            # Ejecutiones posteriores: cargar SOLO después de último timestamp
             time_filter = f"'{last_timestamp}'::timestamptz"
             logging.info(f"📥 Cargando SOLO datos después de: {last_timestamp}")
         
-        # Paso 3: Ejecutar query
-        # ✅ IMPORTANTE: degradation_cycle y provider_changed podrían no existir en bgp_metrics
-        # Intentamos incluirlos, pero si no existen, PostgreSQL maneja el error
+        # ✅ Query incluye columnas de detección combinada desde bgp_metrics
         query = f"""
             SELECT
                 time, provider,
@@ -135,6 +153,17 @@ class FeatureEngineImproved:
                 peer_loss_pct, dns_loss_pct,
                 peer_jitter_ms, dns_jitter_ms,
                 score,
+                -- ✅ Columnas de detección combinada desde bgp_metrics
+                COALESCE(z_score_peer, 0) as z_score_peer,
+                COALESCE(z_score_severity, 'normal') as z_score_severity,
+                COALESCE(rolling_mean, 0) as rolling_mean,
+                COALESCE(rolling_std, 0) as rolling_std,
+                COALESCE(rolling_p95, 0) as rolling_p95,
+                COALESCE(absolute_severity, 'normal') as absolute_severity,
+                COALESCE(relative_diff_ms, 0) as relative_diff_ms,
+                COALESCE(relative_severity, 'normal') as relative_severity,
+                COALESCE(combined_severity, 'normal') as combined_severity,
+                -- Degradation tracking
                 COALESCE(degradation_cycle, 0) as degradation_cycle,
                 COALESCE(provider_changed, FALSE) as provider_changed
             FROM bgp_metrics
@@ -190,12 +219,13 @@ class FeatureEngineImproved:
             mask = df['provider'] == provider
             provider_data = df.loc[mask].sort_values('time')
             
+            # ✅ Ventana reducida a ROLLING_WINDOW (5)
             df.loc[mask, 'latency_trend_5min'] = provider_data['peer_latency_ms'].rolling(
-                window=10, min_periods=1
+                window=ROLLING_WINDOW, min_periods=1
             ).mean().diff().fillna(0).values
             
             df.loc[mask, 'latency_trend_15min'] = provider_data['peer_latency_ms'].rolling(
-                window=30, min_periods=1
+                window=ROLLING_WINDOW * 3, min_periods=1
             ).mean().diff().fillna(0).values
             
             df.loc[mask, 'latency_velocity'] = provider_data['peer_latency_ms'].diff().fillna(0).values
@@ -208,36 +238,31 @@ class FeatureEngineImproved:
         return df
 
     def calculate_rolling_statistics(self, df):
-        """Calcula estadísticas móviles"""
+        """
+        ✅ CORRECCIÓN: NO calcular columnas redundantes
+        Las rolling stats (rolling_mean, rolling_std, rolling_p95) 
+        ya vienen de bgp_metrics y se cargaron en load_metrics_incremental()
+        
+        Este método ahora es un placeholder para futuras features rolling
+        que NO existan en bgp_metrics
+        """
         if df.empty:
             return df
         
-        logging.info("🔧 Calculando rolling statistics...")
+        logging.info(f"🔧 Calculando rolling statistics adicionales (ventana={ROLLING_WINDOW} ciclos)...")
         df = df.copy()
         
-        for provider in df['provider'].unique():
-            mask = df['provider'] == provider
-            provider_data = df.loc[mask].sort_values('time')
-            
-            df.loc[mask, 'peer_latency_mean_10'] = provider_data['peer_latency_ms'].rolling(
-                window=10, min_periods=1
-            ).mean().values
-            
-            df.loc[mask, 'peer_latency_std_10'] = provider_data['peer_latency_ms'].rolling(
-                window=10, min_periods=1
-            ).std().fillna(0).values
-            
-            df.loc[mask, 'peer_latency_min_10'] = provider_data['peer_latency_ms'].rolling(
-                window=10, min_periods=1
-            ).min().values
-            
-            df.loc[mask, 'peer_latency_max_10'] = provider_data['peer_latency_ms'].rolling(
-                window=10, min_periods=1
-            ).max().values
-            
-            df.loc[mask, 'peer_latency_p95_10'] = provider_data['peer_latency_ms'].rolling(
-                window=10, min_periods=1
-            ).apply(lambda x: x.quantile(0.95)).values
+        # ✅ Las columnas rolling_mean, rolling_std, rolling_p95 YA VIENEN de bgp_metrics
+        # No necesitamos recalcularlas aquí
+        
+        # Si en el futuro necesitas calcular rolling stats adicionales que NO estén en bgp_metrics,
+        # puedes agregarlas aquí. Por ejemplo:
+        # - rolling_mean_15 (ventana de 15 ciclos)
+        # - rolling_std_15 (ventana de 15 ciclos)
+        # - rolling_p95_15 (ventana de 15 ciclos)
+        
+        # Por ahora, este método no hace nada porque todas las rolling stats
+        # necesarias ya vienen de bgp_metrics
         
         return df
 
@@ -267,10 +292,7 @@ class FeatureEngineImproved:
         return df
 
     def calculate_provider_features(self, df):
-        """
-        ✅ Calcula features relacionadas con providers
-        Versión CORREGIDA: usa merge() para evitar errores de longitud
-        """
+        """Calcula features relacionadas con providers"""
         if df.empty:
             return df
         
@@ -281,14 +303,12 @@ class FeatureEngineImproved:
         try:
             cur = self.conn.cursor()
             
-            # 1. Contar cambios en última hora
             cur.execute("""
                 SELECT COUNT(*) FROM bgp_failover_events
                 WHERE time >= NOW() - INTERVAL '1 hour'
             """)
             changes_last_hour = cur.fetchone()[0]
             
-            # 2. Obtener último timestamp de cambio
             cur.execute("""
                 SELECT COALESCE(MAX(time), NOW()) FROM bgp_failover_events
             """)
@@ -296,23 +316,18 @@ class FeatureEngineImproved:
             
             cur.close()
             
-            # Calcular minutos desde último cambio
             time_since_change = (df['time'] - last_change_time).dt.total_seconds() / 60
         except Exception as e:
             logging.warning(f"⚠️ Error obteniendo failover info: {e}")
             changes_last_hour = 0
             time_since_change = 0
         
-        # Agregar campos de failovers
         df['provider_changes_last_hour'] = changes_last_hour
         df['time_since_last_change_min'] = time_since_change.clip(lower=0)
         
-        # 3. Calcular scores de providers usando merge
-        # Paso 1: Crear tabla con scores por timestamp y provider
+        # Calcular scores de providers usando merge
         score_table = df[['time', 'provider', 'score']].copy()
         
-        # Paso 2: Para cada timestamp, obtener score del provider alternativo (el otro)
-        # Crear una tabla pivoteada para acceso fácil
         score_pivot = score_table.pivot_table(
             index='time',
             columns='provider',
@@ -320,15 +335,10 @@ class FeatureEngineImproved:
             aggfunc='first'
         )
         
-        # Paso 3: Calcular alternative_provider_score
-        # Para cada proveedor, el alternativo es el otro proveedor
         df['current_provider_score'] = df['score']
         
-        # Merge para obtener scores de ambos proveedores
         df = df.merge(score_pivot.reset_index(), on='time', how='left')
         
-        # Calcular alternative_provider_score
-        # Si provider es PROVIDER1, alternativo es PROVIDER2, etc.
         providers = df['provider'].unique()
         if len(providers) == 2:
             provider1, provider2 = sorted(providers)
@@ -337,88 +347,122 @@ class FeatureEngineImproved:
                 axis=1
             )
         else:
-            # Si hay solo un proveedor, alternativo es él mismo
             df['alternative_provider_score'] = df['score']
         
-        # Limpiar columnas temporales
         for col in providers:
             if col in df.columns and col != 'provider':
                 df = df.drop(columns=[col])
         
-        # 4. Calcular diferencia de scores
         df['score_difference'] = df['current_provider_score'] - df['alternative_provider_score']
-        
-        # 5. Verificar si excede threshold (5 puntos)
         df['margin_exceeds_threshold'] = (df['score_difference'] > SWITCH_MARGIN).astype(bool)
         
         return df
 
+    def calculate_combined_detection_features(self, df):
+        """
+        ✅ Calcula features de detección combinada
+        Usa los valores de bgp_metrics (z_score_peer, rolling_mean, etc.)
+        y recalcula combined_severity si es necesario
+        """
+        if df.empty:
+            return df
+        
+        logging.info("🔧 Calculando features de detección COMBINADA...")
+        df = df.copy()
+        
+        # ✅ Las columnas z_score_peer, rolling_mean, rolling_std, rolling_p95,
+        # absolute_severity, relative_diff_ms, relative_severity YA VIENEN de bgp_metrics
+        
+        # ✅ CORRECCIÓN: Fix divide by zero en Z-score
+        # Si rolling_std es 0, el Z-score debe ser 0 (no infinito)
+        if 'rolling_std' in df.columns:
+            # Recalcular Z-score con protección contra división por cero
+            df['z_score_peer'] = np.where(
+                df['rolling_std'] > 0.001,
+                (df['peer_latency_ms'] - df['rolling_mean']) / df['rolling_std'].replace(0, np.nan),
+                0.0
+            )
+            df['z_score_peer'] = df['z_score_peer'].fillna(0.0).round(2)
+            
+            # Recalcular z_score_severity basado en el Z-score corregido
+            df['z_score_severity'] = np.where(
+                df['z_score_peer'] >= Z_SCORE_THRESHOLDS['critical'], 'critical',
+                np.where(
+                    df['z_score_peer'] >= Z_SCORE_THRESHOLDS['degraded'], 'degraded',
+                    np.where(
+                        df['z_score_peer'] >= Z_SCORE_THRESHOLDS['warning'], 'warning',
+                        'normal'
+                    )
+                )
+            )
+        
+        # ✅ Calcular combined_severity (máximo de las 3 detecciones)
+        severity_levels = {'normal': 0, 'warning': 1, 'degraded': 2, 'critical': 3}
+        
+        # Convertir severidades a niveles numéricos
+        z_levels = df['z_score_severity'].map(severity_levels).fillna(0)
+        abs_levels = df['absolute_severity'].map(severity_levels).fillna(0)
+        rel_levels = df['relative_severity'].map(severity_levels).fillna(0)
+        
+        # Combined level = máximo de los 3
+        combined_levels = np.maximum(np.maximum(z_levels, abs_levels), rel_levels)
+        
+        # Convertir niveles de vuelta a strings
+        level_to_severity = {v: k for k, v in severity_levels.items()}
+        df['combined_severity'] = combined_levels.map(level_to_severity)
+        
+        # is_combined_anomaly = True si combined_severity es degraded o critical
+        df['is_combined_anomaly'] = combined_levels >= 2
+        
+        # Estadísticas de detección
+        anomaly_count = df['is_combined_anomaly'].sum()
+        severity_dist = df['combined_severity'].value_counts().to_dict()
+        
+        logging.info(f"   📊 Detección combinada:")
+        logging.info(f"      - Anomalías detectadas: {anomaly_count}/{len(df)}")
+        logging.info(f"      - Distribución de severidad: {severity_dist}")
+        
+        return df
+
     def calculate_target_variable(self, df):
-        """
-        ✅ CORREGIDO: Usa provider_changed como ground truth
-        ✅ LIMPIEZA: Eliminadas columnas optimal_threshold y was_false_positive
-           (No son features reales, son hiperparámetros del modelo)
-        
-        IMPORTANTE: Cada failover crea 2 registros (uno por proveedor)
-        Solo contar UNA VEZ por ciclo, no dos veces
-        
-        Features para ML:
-        - degradation_cycle: 0-3 (fase de degradación) → ORDINAL FEATURE
-        - provider_changed: 0-1 (cambio ocurrió) → TARGET VARIABLE (should_failover)
-        """
+        """Calcula variable target usando provider_changed como ground truth"""
         if df.empty:
             return df
         
         logging.info("🔧 Calculando target variable (usando provider_changed como ground truth)...")
         df = df.copy()
         
-        # ✅ NUEVO: should_failover = provider_changed (fuente de verdad)
         df['should_failover'] = df['provider_changed'].astype(int)
         
-        # ✅ CORRECCIÓN: Contar failovers correctamente
-        # Cada failover crea 2 registros (1 por PROVIDER1 y 1 por PROVIDER2)
-        # Solo contar DISTINCT ciclos con cambio
         failover_cycles = df[df['provider_changed'] == True]['time'].nunique()
-        
-        # Contar registros totales (2 por cada failover: uno por proveedor)
         total_records = len(df)
         
-        # Estadísticas
         logging.info(f"✅ Target calculado:")
         logging.info(f"   - Total registros en dataset: {total_records}")
         logging.info(f"   - Failovers REALES (ciclos distintos): {failover_cycles}")
         logging.info(f"   - Registros con should_failover=1: {df['should_failover'].sum()} (2 por cada failover)")
         
-        # ❌ ELIMINADO: optimal_threshold (no es una feature, es hiperparámetro)
-        # ❌ ELIMINADO: was_false_positive (se calcula post-entrenamiento)
-        
         return df
 
     def process_and_store(self):
-        """
-        Procesa nuevos features y los almacena
-        ✅ CORRECCIÓN: SOLO graba datos NUEVOS, sin redundancia
-        """
-        # Paso 1: Cargar SOLO datos nuevos
+        """Procesa nuevos features y los almacena"""
         df = self.load_metrics_incremental()
         
         if df.empty:
             logging.info("ℹ️ Sin nuevos datos, nada que procesar")
             return 0
         
-        # Paso 2: Calcular features
         logging.info("🔄 Procesando features...")
         df = self.calculate_derived_features(df)
         df = self.calculate_temporal_features(df)
         df = self.calculate_rolling_statistics(df)
         df = self.calculate_contextual_features(df)
-        df = self.calculate_provider_features(df)  # ✅ NUEVO
-        df = self.calculate_target_variable(df)  # ✅ CORREGIDO
+        df = self.calculate_provider_features(df)
+        df = self.calculate_combined_detection_features(df)
+        df = self.calculate_target_variable(df)
         
-        # Paso 3: Validar datos
         logging.info("✓ Validando datos...")
         
-        # Paso 4: Grabar en BD
         logging.info("💾 Guardando en ml_features...")
         inserted = 0
         
@@ -453,8 +497,11 @@ def main():
     logging.info(f"⚙️ Fallback: {LAST_HOURS} horas si ml_features vacía")
     logging.info(f"⚙️ SUSTAINED_DEGRADATION_CYCLES: {SUSTAINED_DEGRADATION_CYCLES}")
     logging.info(f"⚙️ SWITCH_MARGIN: {SWITCH_MARGIN}")
+    logging.info(f"⚙️ ROLLING_WINDOW: {ROLLING_WINDOW} ciclos ({ROLLING_WINDOW * 30}s)")
+    logging.info(f"⚙️ Z-Score Thresholds: {Z_SCORE_THRESHOLDS}")
+    logging.info(f"⚙️ Absolute Thresholds (peer): {ABSOLUTE_LATENCY_THRESHOLDS['peer_warning']}/{ABSOLUTE_LATENCY_THRESHOLDS['peer_degraded']}/{ABSOLUTE_LATENCY_THRESHOLDS['peer_critical']}ms")
+    logging.info(f"⚙️ Relative Thresholds: {RELATIVE_DIFF_THRESHOLDS['warning']}/{RELATIVE_DIFF_THRESHOLDS['degraded']}/{RELATIVE_DIFF_THRESHOLDS['critical']}ms")
     
-    # Procesar y almacenar
     inserted = engine.process_and_store()
     
     logging.info("")
