@@ -1,21 +1,17 @@
 #!/usr/bin/env python3
 """
-TimescaleDB Client FINAL - VERSIÓN COMPLETA
-
-Incluye:
-✅ peer_asn
-✅ provider_change_reason
-✅ degradation_cycle
-✅ sustained_degradation
-✅ detection_cycles en failover events
-✅ Validación de cambios reales
+TimescaleDB Client FINAL - VERSIÓN COMPLETA CON CONVERSIÓN DE TIPOS
+✅ Conversión automática de numpy types a Python nativos
+✅ INSERT dinámico robusto
+✅ Soporte para todas las columnas de detección combinada
+✅ Compatible con NumPy 2.0+
 """
-
 import psycopg2
 from psycopg2.extras import execute_values
 from datetime import datetime
 import logging
 import os
+import numpy as np
 
 logging.basicConfig(
     level=logging.INFO,
@@ -24,8 +20,57 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def convert_numpy_to_python(value):
+    """
+    ✅ CORREGIDO: Convierte tipos numpy a tipos nativos de Python
+    Compatible con NumPy 2.0+ (np.string_ fue removido)
+    """
+    # Manejar None y NaN primero
+    if value is None:
+        return None
+    if isinstance(value, float) and np.isnan(value):
+        return None
+    
+    # Tipos enteros de numpy
+    if isinstance(value, (np.integer,)):
+        return int(value)
+    
+    # Tipos flotantes de numpy
+    if isinstance(value, (np.floating,)):
+        return float(value)
+    
+    # Tipos booleanos de numpy
+    if isinstance(value, (np.bool_,)):
+        return bool(value)
+    
+    # Arrays de numpy
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    
+    # Strings de numpy (compatible con NumPy 2.0)
+    # En NumPy 2.0, np.string_ fue removido, usar np.bytes_ en su lugar
+    if hasattr(np, 'bytes_') and isinstance(value, np.bytes_):
+        return str(value)
+    elif hasattr(np, 'str_') and isinstance(value, np.str_):
+        return str(value)
+    
+    # Si no es tipo numpy, retornar tal cual
+    return value
+
+
+def sanitize_metrics_dict(metrics_dict):
+    """
+    Sanitiza un diccionario de métricas convirtiendo todos los numpy types
+    a tipos nativos de Python para que psycopg2 pueda insertarlos correctamente
+    """
+    sanitized = {}
+    for key, value in metrics_dict.items():
+        sanitized[key] = convert_numpy_to_python(value)
+    return sanitized
+
+
 class TimescaleDBClient:
-    """Cliente TimescaleDB FINAL con todos los campos"""
+    """Cliente TimescaleDB FINAL con conversión automática de tipos"""
     
     def __init__(self, host='timescaledb', port=5432, database='bgp_failover_db',
                  user='bgp_app', password=None):
@@ -40,7 +85,7 @@ class TimescaleDBClient:
         
         self.conn = None
         self.connect()
-    
+
     def connect(self):
         try:
             self.conn = psycopg2.connect(
@@ -51,179 +96,134 @@ class TimescaleDBClient:
         except Exception as e:
             logger.error(f"❌ Error conectando a TimescaleDB: {e}")
             raise
-    
+
     def insert_bgp_metrics(self, metrics):
         """
-        Insertar métricas BGP COMPLETAS con TODOS los campos
-        
-        Campos:
-        ✅ time, provider, peer_ip, peer_asn
-        ✅ peer_latency_ms, peer_jitter_ms, peer_loss_pct
-        ✅ dns_latency_ms, dns_jitter_ms, dns_loss_pct
-        ✅ score, weighted_latency, loss_penalty, jitter_penalty
-        ✅ current_provider, provider_changed, provider_change_reason
-        ✅ degradation_cycle, sustained_degradation
-        ✅ quality_status, cycle_number
+        ✅ CORREGIDO: Insertar métricas BGP con conversión automática de tipos numpy
+        Manejo robusto de errores y cursores
         """
+        cur = None  # ✅ CORRECCIÓN: Inicializar cursor antes del try
         try:
-            cur = self.conn.cursor()
+            # ✅ Sanitizar el diccionario antes de insertar
+            sanitized_metrics = sanitize_metrics_dict(metrics)
             
-            insert_query = """
-                INSERT INTO bgp_metrics (
-                    time,
-                    provider,
-                    peer_ip,
-                    peer_asn,
-                    peer_latency_ms,
-                    peer_jitter_ms,
-                    peer_loss_pct,
-                    dns_latency_ms,
-                    dns_jitter_ms,
-                    dns_loss_pct,
-                    score,
-                    weighted_latency,
-                    loss_penalty,
-                    jitter_penalty,
-                    current_provider,
-                    provider_changed,
-                    provider_change_reason,
-                    degradation_cycle,
-                    sustained_degradation,
-                    quality_status,
-                    cycle_number
-                ) VALUES (
-                    %(time)s,
-                    %(provider)s,
-                    %(peer_ip)s,
-                    %(peer_asn)s,
-                    %(peer_latency_ms)s,
-                    %(peer_jitter_ms)s,
-                    %(peer_loss_pct)s,
-                    %(dns_latency_ms)s,
-                    %(dns_jitter_ms)s,
-                    %(dns_loss_pct)s,
-                    %(score)s,
-                    %(weighted_latency)s,
-                    %(loss_penalty)s,
-                    %(jitter_penalty)s,
-                    %(current_provider)s,
-                    %(provider_changed)s,
-                    %(provider_change_reason)s,
-                    %(degradation_cycle)s,
-                    %(sustained_degradation)s,
-                    %(quality_status)s,
-                    %(cycle_number)s
-                )
+            # ✅ INSERT DINÁMICO: Construir query basado en las claves del diccionario
+            columns = list(sanitized_metrics.keys())
+            placeholders = ", ".join(["%s"] * len(columns))
+            column_names = ", ".join(columns)
+            
+            insert_query = f"""
+                INSERT INTO bgp_metrics ({column_names})
+                VALUES ({placeholders})
             """
             
-            cur.execute(insert_query, metrics)
+            values = [sanitized_metrics[col] for col in columns]
+            
+            cur = self.conn.cursor()
+            cur.execute(insert_query, values)
             self.conn.commit()
             
-            logger.debug(f"✅ {metrics['provider']} Ciclo {metrics.get('cycle_number')} Score: {metrics['score']:.2f}")
+            logger.debug(f"✅ {sanitized_metrics['provider']} Ciclo {sanitized_metrics.get('cycle_number')} Score: {sanitized_metrics['score']:.2f}")
             return True
             
         except Exception as e:
             logger.error(f"❌ Error insertando métrica: {e}")
-            self.conn.rollback()
+            logger.error(f"   Columnas intentadas: {list(metrics.keys())}")
+            logger.error(f"   Valores problemáticos:")
+            for key, value in metrics.items():
+                logger.error(f"     {key}: {type(value).__name__} = {value}")
+            
+            # ✅ CORRECCIÓN: Solo hacer rollback si la conexión está activa
+            if self.conn and not self.conn.closed:
+                try:
+                    self.conn.rollback()
+                except Exception as rollback_error:
+                    logger.error(f"❌ Error en rollback: {rollback_error}")
+            
             return False
-        
         finally:
-            cur.close()
-    
+            # ✅ CORRECCIÓN: Solo cerrar cursor si fue creado
+            if cur is not None:
+                try:
+                    cur.close()
+                except Exception as close_error:
+                    logger.debug(f"⚠️ Error cerrando cursor: {close_error}")
+
     def insert_failover_event(self, event):
         """
-        Insertar evento de failover CON detection_cycles
-        
-        Validación: previous_provider != new_provider
+        ✅ CORREGIDO: Insertar evento de failover con conversión de tipos
         """
+        cur = None  # ✅ Inicializar cursor
         try:
-            # ✅ VALIDACIÓN: No insertar eventos falsos (PROVIDER1 → PROVIDER1)
-            if event.get('previous_provider') == event.get('new_provider'):
-                logger.warning(f"⚠️ Evento inválido: {event['previous_provider']} → {event['new_provider']} (sin cambio)")
+            # ✅ Sanitizar el diccionario
+            sanitized_event = sanitize_metrics_dict(event)
+            
+            # Validación: No insertar eventos falsos
+            if sanitized_event.get('previous_provider') == sanitized_event.get('new_provider'):
+                logger.warning(f"⚠️ Evento inválido: {sanitized_event['previous_provider']} → {sanitized_event['new_provider']}")
                 return False
             
-            cur = self.conn.cursor()
+            # ✅ INSERT DINÁMICO
+            columns = list(sanitized_event.keys())
+            placeholders = ", ".join(["%s"] * len(columns))
+            column_names = ", ".join(columns)
             
-            insert_query = """
-                INSERT INTO bgp_failover_events (
-                    previous_provider,
-                    new_provider,
-                    change_reason,
-                    previous_provider_score,
-                    new_provider_score,
-                    score_improvement,
-                    detection_cycles,
-                    detected_by
-                ) VALUES (
-                    %(previous_provider)s,
-                    %(new_provider)s,
-                    %(change_reason)s,
-                    %(previous_provider_score)s,
-                    %(new_provider_score)s,
-                    %(score_improvement)s,
-                    %(detection_cycles)s,
-                    %(detected_by)s
-                )
+            insert_query = f"""
+                INSERT INTO bgp_failover_events ({column_names})
+                VALUES ({placeholders})
             """
             
-            event['score_improvement'] = event['previous_provider_score'] - event['new_provider_score']
+            values = [sanitized_event[col] for col in columns]
             
-            cur.execute(insert_query, event)
+            cur = self.conn.cursor()
+            cur.execute(insert_query, values)
             self.conn.commit()
             
-            logger.info(f"🔄 Failover: {event['previous_provider']} → {event['new_provider']} (ciclos: {event.get('detection_cycles', '?')})")
+            logger.info(f"🔄 Failover: {sanitized_event['previous_provider']} → {sanitized_event['new_provider']} (ciclos: {sanitized_event.get('detection_cycles', '?')})")
             return True
             
         except Exception as e:
             logger.error(f"❌ Error insertando failover event: {e}")
-            self.conn.rollback()
+            if self.conn and not self.conn.closed:
+                try:
+                    self.conn.rollback()
+                except Exception as rollback_error:
+                    logger.error(f"❌ Error en rollback: {rollback_error}")
             return False
-        
         finally:
-            cur.close()
-    
+            if cur is not None:
+                try:
+                    cur.close()
+                except Exception as close_error:
+                    logger.debug(f"⚠️ Error cerrando cursor: {close_error}")
+
     def insert_batch_metrics(self, metrics_list):
-        """Insertar batch de métricas (más eficiente)"""
+        """✅ CORREGIDO: Insertar batch de métricas con conversión de tipos"""
+        cur = None  # ✅ Inicializar cursor
         try:
-            cur = self.conn.cursor()
+            # ✅ Sanitizar todas las métricas
+            sanitized_list = [sanitize_metrics_dict(m) for m in metrics_list]
             
+            if not sanitized_list:
+                return True
+            
+            # Usar las claves del primer registro
+            columns = list(sanitized_list[0].keys())
+            column_names = ", ".join(columns)
+            
+            # Construir lista de tuplas
             data = [
-                (
-                    m['time'],
-                    m['provider'],
-                    m.get('peer_ip', ''),
-                    m.get('peer_asn'),
-                    m['peer_latency_ms'],
-                    m['peer_jitter_ms'],
-                    m['peer_loss_pct'],
-                    m['dns_latency_ms'],
-                    m['dns_jitter_ms'],
-                    m['dns_loss_pct'],
-                    m['score'],
-                    m.get('weighted_latency', 0),
-                    m.get('loss_penalty', 0),
-                    m.get('jitter_penalty', 0),
-                    m['current_provider'],
-                    m['provider_changed'],
-                    m.get('provider_change_reason', ''),
-                    m.get('degradation_cycle', 0),
-                    m.get('sustained_degradation', False),
-                    m['quality_status'],
-                    m.get('cycle_number', 0)
-                )
-                for m in metrics_list
+                tuple(m.get(col) for col in columns)
+                for m in sanitized_list
             ]
             
-            insert_query = """
-                INSERT INTO bgp_metrics (
-                    time, provider, peer_ip, peer_asn, peer_latency_ms, peer_jitter_ms,
-                    peer_loss_pct, dns_latency_ms, dns_jitter_ms, dns_loss_pct, score,
-                    weighted_latency, loss_penalty, jitter_penalty, current_provider,
-                    provider_changed, provider_change_reason, degradation_cycle,
-                    sustained_degradation, quality_status, cycle_number
-                ) VALUES %s
+            placeholders = ", ".join(["%s"] * len(columns))
+            insert_query = f"""
+                INSERT INTO bgp_metrics ({column_names})
+                VALUES %s
             """
             
+            cur = self.conn.cursor()
             execute_values(cur, insert_query, data)
             self.conn.commit()
             
@@ -232,17 +232,24 @@ class TimescaleDBClient:
             
         except Exception as e:
             logger.error(f"❌ Error en batch insert: {e}")
-            self.conn.rollback()
+            if self.conn and not self.conn.closed:
+                try:
+                    self.conn.rollback()
+                except Exception as rollback_error:
+                    logger.error(f"❌ Error en rollback: {rollback_error}")
             return False
-        
         finally:
-            cur.close()
-    
+            if cur is not None:
+                try:
+                    cur.close()
+                except Exception as close_error:
+                    logger.debug(f"⚠️ Error cerrando cursor: {close_error}")
+
     def get_latest_metrics(self, provider, limit=10):
         """Obtener últimas métricas"""
+        cur = None
         try:
             cur = self.conn.cursor()
-            
             query = """
                 SELECT time, provider, peer_latency_ms, score, quality_status
                 FROM bgp_metrics
@@ -250,18 +257,19 @@ class TimescaleDBClient:
                 ORDER BY time DESC
                 LIMIT %s
             """
-            
             cur.execute(query, (provider, limit))
             results = cur.fetchall()
             return results
-            
         except Exception as e:
             logger.error(f"❌ Error obteniendo métricas: {e}")
             return []
-        
         finally:
-            cur.close()
-    
+            if cur is not None:
+                try:
+                    cur.close()
+                except Exception:
+                    pass
+
     def health_check(self):
         """Verificar salud de conexión"""
         try:
@@ -272,10 +280,10 @@ class TimescaleDBClient:
             return True
         except:
             return False
-    
+
     def close(self):
         """Cerrar conexión"""
-        if self.conn:
+        if self.conn and not self.conn.closed:
             self.conn.close()
             logger.info("Conexión a TimescaleDB cerrada")
 
@@ -301,43 +309,49 @@ if __name__ == '__main__':
     
     logger.info("✅ Conexión verificada")
     
-    # Insertar métrica COMPLETA
+    # ✅ Test con métrica que incluye numpy types
     sample_metric = {
         'time': datetime.utcnow(),
         'provider': 'PROVIDER1',
         'peer_ip': '2001:db8:ffaa::255',
-        'peer_asn': 65002,
-        'peer_latency_ms': 12.5,
-        'peer_jitter_ms': 3.2,
-        'peer_loss_pct': 0.0,
-        'dns_latency_ms': 25.3,
-        'dns_jitter_ms': 8.1,
-        'dns_loss_pct': 0.0,
-        'score': 23.7,
-        'weighted_latency': 20.5,
-        'loss_penalty': 0.0,
-        'jitter_penalty': 2.8,
+        'peer_asn': np.int64(65002),  # ← numpy type
+        'peer_latency_ms': np.float64(12.5),  # ← numpy type
+        'peer_jitter_ms': np.float64(3.2),
+        'peer_loss_pct': np.float64(0.0),
+        'dns_latency_ms': np.float64(25.3),
+        'dns_jitter_ms': np.float64(8.1),
+        'dns_loss_pct': np.float64(0.0),
+        'score': np.float64(23.7),
+        'weighted_latency': np.float64(20.5),
+        'loss_penalty': np.float64(0.0),
+        'jitter_penalty': np.float64(2.8),
         'current_provider': 'PROVIDER1',
-        'provider_changed': False,
+        'provider_changed': np.bool_(False),  # ← numpy bool
         'provider_change_reason': '',
-        'degradation_cycle': 0,
-        'sustained_degradation': False,
+        'degradation_cycle': np.int64(0),
+        'sustained_degradation': np.bool_(False),
         'quality_status': 'excellent',
-        'cycle_number': 1
+        'cycle_number': np.int64(1),
+        # ✅ Nuevas columnas de detección combinada
+        'z_score_peer': np.float64(1.5),
+        'z_score_severity': 'normal',
+        'rolling_mean': np.float64(10.5),
+        'rolling_std': np.float64(2.3),
+        'rolling_p95': np.float64(15.2),
+        'absolute_severity': 'warning',
+        'relative_diff_ms': np.float64(5.8),
+        'relative_severity': 'warning',
+        'combined_severity': 'warning',
+        'is_combined_anomaly': np.bool_(False)
     }
     
-    client.insert_bgp_metrics(sample_metric)
+    result = client.insert_bgp_metrics(sample_metric)
     
-    sample_metric['provider'] = 'PROVIDER2'
-    sample_metric['peer_ip'] = '2001:db8:ffac::255'
-    sample_metric['peer_asn'] = 65003
-    sample_metric['cycle_number'] = 2
-    client.insert_bgp_metrics(sample_metric)
-    
-    print("\n📊 Últimas métricas de PROVIDER1:")
-    metrics = client.get_latest_metrics('PROVIDER1', limit=5)
-    for metric in metrics:
-        print(f"  {metric[0]} - Score: {metric[3]:.2f}")
+    if result:
+        print("\n📊 Últimas métricas de PROVIDER1:")
+        metrics = client.get_latest_metrics('PROVIDER1', limit=5)
+        for metric in metrics:
+            print(f"  {metric[0]} - Score: {metric[3]:.2f}")
     
     client.close()
     print("\n✅ Test completado!")
