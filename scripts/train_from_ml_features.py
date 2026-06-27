@@ -1,9 +1,12 @@
 """
 train_from_ml_features.py
+Entrena XGBoost con Cross-Validation usando datos de ml_features
 
-Entrena XGBoost usando datos directamente de ml_features
+✅ CORRECCIONES:
+├─ Usa Cross-Validation (5 folds) para pesos más estables
+├─ Eliminado data leakage de degradation_cycle
+└─ Análisis de estabilidad de features
 """
-
 import psycopg2
 import pandas as pd
 import numpy as np
@@ -11,6 +14,7 @@ import logging
 from xgboost_optimizer import ScoringWeightOptimizer
 
 logger = logging.getLogger(__name__)
+
 
 def load_training_data_from_ml_features(
     timescaledb_password,
@@ -20,15 +24,7 @@ def load_training_data_from_ml_features(
     timescaledb_db='bgp_failover_db',
     timescaledb_user='bgp_app'
 ):
-    """
-    Carga datos de entrenamiento desde ml_features (no de ml_training_data)
-    
-    ✅ VENTAJAS:
-    ├─ Obtiene todas las features derivadas
-    ├─ Acceso a estadísticas Rolling
-    ├─ Features contextuales completas
-    └─ Una única fuente de verdad
-    """
+    """Carga datos de entrenamiento desde ml_features"""
     
     logger.info(f"📥 Cargando {days} días de datos de ml_features...")
     
@@ -59,20 +55,27 @@ def load_training_data_from_ml_features(
         COALESCE(latency_acceleration, 0) as latency_acceleration,
         COALESCE(loss_spike_detected::int, 0) as loss_spike_detected,
         -- Rolling statistics
-        peer_latency_mean_10,
-        peer_latency_std_10,
-        peer_latency_min_10,
-        peer_latency_max_10,
-        peer_latency_p95_10,
+        COALESCE(rolling_mean, 0) as rolling_mean,
+        COALESCE(rolling_std, 0) as rolling_std,
+        COALESCE(rolling_p95, 0) as rolling_p95,
         -- Contextual features
         hour_of_day,
         day_of_week,
         COALESCE(is_business_hours::int, 0) as is_business_hours,
         COALESCE(is_peak_traffic::int, 0) as is_peak_traffic,
         COALESCE(is_weekend::int, 0) as is_weekend,
+        -- Degradation tracking (SIN degradation_cycle para evitar leakage)
+        COALESCE(provider_changed::int, 0) as provider_changed,
         COALESCE(score_difference, 0) as score_difference,
         COALESCE(margin_exceeds_threshold::int, 0) as margin_exceeds_threshold,
-        COALESCE(provider_changed::int, 0) as provider_changed,
+        -- Detección Combinada
+        COALESCE(z_score_peer, 0) as z_score_peer,
+        COALESCE(z_score_severity, 'normal') as z_score_severity,
+        COALESCE(absolute_severity, 'normal') as absolute_severity,
+        COALESCE(relative_diff_ms, 0) as relative_diff_ms,
+        COALESCE(relative_severity, 'normal') as relative_severity,
+        COALESCE(combined_severity, 'normal') as combined_severity,
+        COALESCE(is_combined_anomaly, FALSE) as is_combined_anomaly,
         -- Target
         should_failover
     FROM ml_features
@@ -87,42 +90,44 @@ def load_training_data_from_ml_features(
     logger.info(f"   Fechas: {df['time'].min()} a {df['time'].max()}")
     logger.info(f"   Providers: {df['provider'].unique()}")
     
-    # ✅ NUEVO: Verificar que degradation_cycle se cargó
-    if 'degradation_cycle' in df.columns:
-        logger.info(f"   ✓ degradation_cycle cargado:")
-        logger.info(f"     Valores únicos: {sorted(df['degradation_cycle'].unique())}")
-    else:
-        logger.warning(f"   ✗ degradation_cycle NO ENCONTRADO")
+    # Verificar features de detección combinada
+    detection_features = [
+        'z_score_peer', 'z_score_severity', 'rolling_mean',
+        'absolute_severity', 'relative_diff_ms', 'combined_severity'
+    ]
     
-    if 'provider_changed' in df.columns:
-        logger.info(f"   ✓ provider_changed cargado:")
-        logger.info(f"     Valores: {df['provider_changed'].unique()}")
-    else:
-        logger.warning(f"   ✗ provider_changed NO ENCONTRADO")
+    for feature in detection_features:
+        if feature in df.columns:
+            if df[feature].dtype == 'object':
+                unique_vals = df[feature].unique()[:5]
+                logger.info(f"   ✓ {feature}: {len(df[feature].unique())} valores únicos")
+            else:
+                non_zero = (df[feature] != 0).sum()
+                logger.info(f"   ✓ {feature}: {non_zero}/{len(df)} con valores calculados")
+        else:
+            logger.warning(f"   ✗ {feature}: NO ENCONTRADO")
     
     logger.info(f"   Target distribution:")
     logger.info(f"     - No failover: {(df['should_failover']==0).sum()}")
     logger.info(f"     - Failover: {(df['should_failover']==1).sum()}")
     
-    # ✅ NUEVO: Conteo correcto de failovers únicos
+    # Conteo correcto de failovers únicos
     unique_failover_times = df[df['should_failover'] == 1]['time'].nunique()
     logger.info(f"   Failovers ÚNICOS (ciclos distintos): {unique_failover_times}")
     
     return df
 
+
 def main():
-    """
-    Ejecuta entrenamiento desde ml_features
-    """
-    
+    """Ejecuta entrenamiento con Cross-Validation desde ml_features"""
     logging.basicConfig(level=logging.INFO)
     
     print("=" * 80)
-    print("🚀 ENTRENAMIENTO DESDE ml_features")
+    print("🚀 ENTRENAMIENTO CON CROSS-VALIDATION (CORREGIDO)")
     print("=" * 80)
     print()
     
-    # 1. Cargar datos desde ml_features
+    # 1. Cargar datos
     print("PASO 1: Cargar datos de ml_features")
     print("-" * 80)
     
@@ -131,15 +136,15 @@ def main():
         days=30
     )
     
-    print(f"✅ Dataset cargado: {len(df)} registros")
-    print(f"   Características: {list(df.columns)}")
+    print(f"\n✅ Dataset cargado: {len(df)} registros")
+    print(f"   Características: {len(df.columns)}")
     
-    # 2. Entrenar XGBoost
-    print("\nPASO 2: Entrenar XGBoost")
+    # 2. Entrenar con Cross-Validation
+    print("\nPASO 2: Entrenar XGBoost con Cross-Validation")
     print("-" * 80)
     
     optimizer = ScoringWeightOptimizer()
-    y_test, y_pred, y_pred_proba = optimizer.train(df)
+    feature_importance = optimizer.train_with_cv(df, n_splits=5)
     
     # 3. Obtener pesos
     print("\nPASO 3: Extraer pesos optimizados")
@@ -151,11 +156,37 @@ def main():
     print("✅ ENTRENAMIENTO COMPLETADO")
     print("=" * 80)
     print()
-    print(f"Pesos optimizados:")
+    print(f"Pesos optimizados (promedio de 5 folds):")
     print(f"  Peer latency weight: {weights['peer_latency_weight']:.4f}")
     print(f"  DNS latency weight: {weights['dns_latency_weight']:.4f}")
     print(f"  Loss importance: {weights['loss_importance']:.4f}")
+    print(f"  Jitter importance: {weights['jitter_importance']:.4f}")
+    print(f"  Rolling importance: {weights['rolling_importance']:.4f}")
+    print(f"  Derived importance: {weights['derived_importance']:.4f}")
+    print(f"  Degradation importance: {weights['degradation_importance']:.4f}")
     print(f"  Context importance: {weights['context_importance']:.4f}")
+    print(f"  Combined detection importance: {weights['combined_detection_importance']:.4f}")
+    
+    print("\nCross-Validation Metrics:")
+    for metric, values in weights['cv_scores'].items():
+        mean_val = np.mean(values)
+        std_val = np.std(values)
+        print(f"  {metric:12s}: {mean_val:.4f} ± {std_val:.4f}")
+    
+    print("\nRecomendaciones:")
+    for key, value in weights['recommendations'].items():
+        status = "✅ SÍ" if value else "❌ NO"
+        print(f"  {key}: {status}")
+    
+    print("\n" + "=" * 80)
+    print("📋 CORRECCIONES APLICADAS:")
+    print("=" * 80)
+    print("  ✅ Eliminada degradation_cycle (data leakage)")
+    print("  ✅ Cross-Validation con 5 folds")
+    print("  ✅ Regularización aumentada (max_depth=3, reg_alpha=0.1)")
+    print("  ✅ Análisis de estabilidad de features")
+    print("  ✅ Pesos promediados entre folds")
+
 
 if __name__ == '__main__':
     main()
