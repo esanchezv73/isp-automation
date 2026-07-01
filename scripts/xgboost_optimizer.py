@@ -6,7 +6,8 @@ xgboost_optimizer.py - VERSIÓN CON CROSS-VALIDATION
 ├─ Implementado Stratified K-Fold Cross-Validation (5 folds)
 ├─ Aumentada regularización (max_depth=3, reg_alpha, reg_lambda)
 ├─ Análisis de estabilidad de features entre folds
-└─ Pesos promediados entre folds (más robustos)
+├─ Pesos promediados entre folds (más robustos)
+└─ NUEVO: Usa failover_event como target (conteo correcto de failovers)
 
 Objetivo: Encontrar pesos ÓPTIMOS y ESTABLES basado en datos históricos
 """
@@ -30,23 +31,26 @@ class ScoringWeightOptimizer:
     Usa XGBoost con Cross-Validation para aprender pesos óptimos de scoring.
     ✅ CORRECCIÓN: Eliminado data leakage de degradation_cycle
     ✅ NUEVO: Cross-validation para pesos más estables
+    ✅ NUEVO: Usa failover_event como target (conteo correcto)
     """
     
     def __init__(self):
         self.model = None
         self.feature_importance = None
-        self.feature_importance_std = None  # ✅ NUEVO: Desviación estándar
+        self.feature_importance_std = None
         self.X_test = None
         self.y_test = None
         self.y_pred = None
         self.y_pred_proba = None
         self.features_used = None
-        self.cv_scores = None  # ✅ NUEVO: Scores de CV
-        self.cv_importances = None  # ✅ NUEVO: Importancias por fold
+        self.cv_scores = None
+        self.cv_importances = None
+        self.target_column = None  # ✅ NUEVO: Guardar qué target se usó
     
     def prepare_features(self, df):
         """
         ✅ CORREGIDO: Prepara features SIN degradation_cycle (data leakage)
+        ✅ NUEVO: Usa failover_event como target si existe
         """
         logger.info("\n🔧 Preparando features...")
         
@@ -75,12 +79,9 @@ class ScoringWeightOptimizer:
         ]
         
         # === CATEGORÍA 4: Features de Degradación ===
-        # ✅ CORRECCIÓN: ELIMINADO degradation_cycle (data leakage)
-        # Solo mantener features que NO revelan la respuesta
         degradation_features = [
-            'score_difference',           # ✅ MANTENER: métrica observable
-            'margin_exceeds_threshold',   # ✅ MANTENER: métrica observable
-            # ❌ ELIMINADO: 'degradation_cycle'  # Data leakage
+            'score_difference',
+            'margin_exceeds_threshold',
         ]
         
         # === CATEGORÍA 5: Contexto Temporal ===
@@ -127,9 +128,21 @@ class ScoringWeightOptimizer:
         if not available_features:
             raise ValueError("❌ No hay features disponibles en el dataframe")
         
-        # ✅ Preparar X e y
+        # ✅ Preparar X
         X = df[available_features].copy()
-        y = df['should_failover'].copy()
+        
+        # ✅ NUEVO: Usar failover_event como target si existe
+        if 'failover_event' in df.columns:
+            y = df['failover_event'].copy()
+            self.target_column = 'failover_event'
+            logger.info("✅ Usando 'failover_event' como target (eventos únicos)")
+            logger.info(f"   - Total failovers: {y.sum()}")
+        else:
+            y = df['should_failover'].copy()
+            self.target_column = 'should_failover'
+            logger.warning("⚠️ Usando 'should_failover' como target (registros duplicados)")
+            logger.warning(f"   - Total registros con failover: {y.sum()}")
+            logger.warning(f"   - Considere ejecutar feature_engine para crear failover_event")
         
         # ✅ Manejar valores NULL
         if X.isnull().any().any():
@@ -172,16 +185,6 @@ class ScoringWeightOptimizer:
     def train_with_cv(self, df, n_splits=5, random_state=42):
         """
         ✅ NUEVO: Entrena con Stratified K-Fold Cross-Validation
-        
-        Ventajas:
-        - Pesos más estables (promedio de 5 folds)
-        - Métricas más realistas (no overfitting)
-        - Análisis de estabilidad de features
-        
-        Args:
-            df: DataFrame con datos de entrenamiento
-            n_splits: número de folds (default: 5)
-            random_state: seed para reproducibilidad
         """
         logger.info("\n" + "=" * 80)
         logger.info("🤖 XGBoost: Cross-Validation (VERSIÓN CORREGIDA)")
@@ -240,13 +243,13 @@ class ScoringWeightOptimizer:
             # Entrenar modelo
             model = xgb.XGBClassifier(
                 n_estimators=100,
-                max_depth=3,              # ✅ REDUCIDO: 6 → 3
-                learning_rate=0.05,       # ✅ REDUCIDO: 0.1 → 0.05
+                max_depth=3,
+                learning_rate=0.05,
                 subsample=0.8,
-                colsample_bytree=0.7,     # ✅ REDUCIDO: 0.8 → 0.7
+                colsample_bytree=0.7,
                 scale_pos_weight=scale_pos_weight,
-                reg_alpha=0.1,            # ✅ NUEVO: L1 regularization
-                reg_lambda=1.0,           # ✅ NUEVO: L2 regularization
+                reg_alpha=0.1,
+                reg_lambda=1.0,
                 random_state=random_state,
                 use_label_encoder=False,
                 eval_metric='logloss',
@@ -339,12 +342,10 @@ class ScoringWeightOptimizer:
     def analyze_feature_stability(self):
         """
         ✅ NUEVO: Analiza la estabilidad de las features entre folds
-        Una feature estable tiene baja varianza entre folds
         """
         logger.info(f"\n📊 Análisis de Estabilidad de Features:")
         logger.info("-" * 80)
         
-        # Calcular coeficiente de variación (std/mean)
         stability_data = []
         
         for _, row in self.feature_importance.iterrows():
@@ -352,13 +353,11 @@ class ScoringWeightOptimizer:
             mean_imp = row['importance']
             std_imp = row['importance_std']
             
-            # Coeficiente de variación (solo si mean > 0)
             if mean_imp > 0.001:
                 cv = std_imp / mean_imp
             else:
                 cv = 0.0
             
-            # Clasificar estabilidad
             if cv < 0.3:
                 stability = "✅ ESTABLE"
             elif cv < 0.7:
@@ -374,10 +373,8 @@ class ScoringWeightOptimizer:
                 'stability': stability
             })
         
-        # Ordenar por importancia
         stability_df = pd.DataFrame(stability_data).sort_values('mean', ascending=False)
         
-        # Mostrar top 15
         for _, row in stability_df.head(15).iterrows():
             bar = "█" * int(row['mean'] * 100 / 2)
             logger.info(
@@ -386,7 +383,6 @@ class ScoringWeightOptimizer:
                 f"(CV={row['cv']:.2f}) {row['stability']}"
             )
         
-        # Resumen
         stable_count = sum(1 for d in stability_data if d['cv'] < 0.3)
         moderate_count = sum(1 for d in stability_data if 0.3 <= d['cv'] < 0.7)
         unstable_count = sum(1 for d in stability_data if d['cv'] >= 0.7)
@@ -609,6 +605,9 @@ class ScoringWeightOptimizer:
                 std_val = np.std(values)
                 logger.info(f"   {metric:12s}: {mean_val:.4f} ± {std_val:.4f}")
         
+        # ✅ NUEVO: Información sobre target usado
+        logger.info(f"\n🎯 Target usado: {self.target_column}")
+        
         return {
             'peer_latency_weight': float(peer_weight),
             'dns_latency_weight': float(dns_weight),
@@ -621,6 +620,7 @@ class ScoringWeightOptimizer:
             'combined_detection_importance': float(combined_detection_total),
             'all_importances': self.feature_importance.to_dict('list'),
             'cv_scores': self.cv_scores,
+            'target_column': self.target_column,
             'recommendations': {
                 'dynamic_thresholds': rolling_total > 0.10,
                 'time_based_thresholds': temporal_total > 0.05,
@@ -654,3 +654,10 @@ class ScoringWeightOptimizer:
         
         prob = self.model.predict_proba(X)[0, 1]
         return prob
+
+
+if __name__ == '__main__':
+    # Ejemplo de uso
+    logging.basicConfig(level=logging.INFO)
+    logger.info("✅ xgboost_optimizer.py cargado correctamente")
+    logger.info("Para usar: from xgboost_optimizer import ScoringWeightOptimizer")
