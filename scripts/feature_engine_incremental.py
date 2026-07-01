@@ -5,8 +5,8 @@ Calcula features derivadas SOLO para nuevos datos desde bgp_metrics
 y los almacena en ml_features sin generar duplicados.
 FREQUENCY: Cada minuto (configurable)
 MODO: Incremental (lee último timestamp, procesa SOLO nuevos)
-
 ✅ CORRECCIÓN: Carga features de detección combinada desde bgp_metrics
+✅ NUEVO: Crea columna failover_event para conteo correcto de failovers
 """
 import psycopg2
 import pandas as pd
@@ -90,6 +90,7 @@ class FeatureEngineImproved:
     Feature Engine mejorado con lectura incremental
     ✅ OBJETIVO: Evitar redundancia, procesar SOLO datos nuevos
     ✅ CORRECCIÓN: Cargar features de detección combinada desde bgp_metrics
+    ✅ NUEVO: Crear columna failover_event para conteo correcto
     """
     
     def __init__(self):
@@ -325,22 +326,39 @@ class FeatureEngineImproved:
         return df
 
     def calculate_target_variable(self, df):
-        """Calcula variable target usando provider_changed como ground truth"""
+        """
+        ✅ MEJORADO: Crea target por evento único (no por registro)
+        - should_failover: mantiene compatibilidad (2 registros por failover)
+        - failover_event: NUEVO, marca solo el registro del provider que PERDIÓ
+        """
         if df.empty:
             return df
         
-        logging.info("🔧 Calculando target variable (usando provider_changed como ground truth)...")
+        logging.info("🔧 Calculando target variable...")
         df = df.copy()
         
+        # Target original (por registro) - mantener para compatibilidad
         df['should_failover'] = df['provider_changed'].astype(int)
         
-        failover_cycles = df[df['provider_changed'] == True]['time'].nunique()
+        # ✅ NUEVO: Target por evento único
+        # Solo marcar el registro del provider que PERDIÓ
+        # (provider_changed=True Y current_provider_score > alternative_provider_score)
+        df['failover_event'] = (
+            (df['provider_changed'] == True) & 
+            (df['current_provider_score'] > df['alternative_provider_score'])
+        ).astype(int)
+        
+        # Estadísticas
         total_records = len(df)
+        failover_records = df['should_failover'].sum()
+        failover_events = df['failover_event'].sum()
+        unique_failover_times = df[df['failover_event'] == 1]['time'].nunique()
         
         logging.info(f"✅ Target calculado:")
-        logging.info(f"   - Total registros en dataset: {total_records}")
-        logging.info(f"   - Failovers REALES (ciclos distintos): {failover_cycles}")
-        logging.info(f"   - Registros con should_failover=1: {df['should_failover'].sum()} (2 por cada failover)")
+        logging.info(f"   - Total registros: {total_records}")
+        logging.info(f"   - Registros con should_failover=1: {failover_records} (2 por cada failover)")
+        logging.info(f"   - Registros con failover_event=1: {failover_events} (1 por cada failover)")
+        logging.info(f"   - Failovers ÚNICOS (ciclos distintos): {unique_failover_times}")
         
         return df
 
@@ -397,6 +415,7 @@ def main():
     logging.info(f"⚙️ SUSTAINED_DEGRADATION_CYCLES: {SUSTAINED_DEGRADATION_CYCLES}")
     logging.info(f"⚙️ SWITCH_MARGIN: {SWITCH_MARGIN}")
     logging.info(f"⚙️ ✅ Features de detección combinada: CARGADAS desde bgp_metrics")
+    logging.info(f"⚙️ ✅ Nueva columna failover_event: CREADA para conteo correcto")
     
     inserted = engine.process_and_store()
     
