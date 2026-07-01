@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-threshold_optimizer.py - VERSIÓN CORREGIDA
+threshold_optimizer.py - VERSIÓN CON MEJORA DE CONTENO ÚNICO
 Optimiza thresholds usando análisis de degradación REAL
 ├─ Fuente: ml_features
 ├─ Método: Análisis de percentiles en ciclos PRE-failover
 ├─ Objetivo: Encontrar thresholds basados en latencias del provider DEGRADADO
-└─ CORRECCIÓN: Conteo correcto de failovers únicos (no duplicados)
+├─ ✅ Conteo correcto de failovers (failover_event)
+└─ ✅ NUEVO: Conteo de degradaciones únicas (no registros duplicados)
 """
 import logging
 import warnings
@@ -36,6 +37,7 @@ class ThresholdOptimizerCorrected:
     2. Provider que PERDIÓ (score_difference > 0)
     3. Diferencia REAL de scores (score_difference absoluta)
     4. Conteo correcto de failovers únicos (no duplicados)
+    5. ✅ NUEVO: Conteo de degradaciones únicas por ciclo
     """
     
     def __init__(self):
@@ -53,7 +55,7 @@ class ThresholdOptimizerCorrected:
     def load_and_prepare_data(self, days=30):
         """Cargar datos con filtros correctos"""
         logger.info("=" * 80)
-        logger.info("📊 THRESHOLD OPTIMIZATION (VERSIÓN CORREGIDA)")
+        logger.info("📊 THRESHOLD OPTIMIZATION (VERSIÓN MEJORADA)")
         logger.info("=" * 80)
         logger.info("\nPASO 1: Cargar datos")
         logger.info("-" * 80)
@@ -62,9 +64,6 @@ class ThresholdOptimizerCorrected:
         df = loader.load_ml_features(days=days)
         
         # ✅ CORRECCIÓN: Crear columna failover_event (solo provider que PERDIÓ)
-        # Un failover event ocurre cuando:
-        # 1. provider_changed = True
-        # 2. score_difference > 0 (este provider tiene score peor que el alternativo)
         df['failover_event'] = (
             (df['provider_changed'] == True) & 
             (df['score_difference'] > 0)
@@ -95,10 +94,11 @@ class ThresholdOptimizerCorrected:
     
     def analyze_latency_thresholds_corrected(self, df):
         """
-        ✅ CORREGIDO: Analiza latencias del provider DEGRADADO
+        ✅ MEJORADO: Analiza latencias del provider DEGRADADO
         Solo en ciclos donde degradation_cycle >= 1
+        ✅ NUEVO: Conteo de degradaciones únicas por ciclo
         """
-        logger.info("\nPASO 2: Analizar thresholds de latencia (CORREGIDO)")
+        logger.info("\nPASO 2: Analizar thresholds de latencia")
         logger.info("-" * 80)
         
         # ✅ FILTRO CORRECTO: Solo registros con degradación
@@ -109,13 +109,18 @@ class ThresholdOptimizerCorrected:
             return {}
         
         logger.info(f"\n📊 Análisis de {len(degraded_data)} registros con degradación:")
-        logger.info(f"   degradation_cycle distribution:")
-        for cycle in sorted(degraded_data['degradation_cycle'].unique()):
-            count = (degraded_data['degradation_cycle'] == cycle).sum()
-            logger.info(f"     Ciclo {cycle}: {count} registros")
+        
+        # ✅ MEJORA: Contar degradaciones únicas por ciclo (agrupando por timestamp)
+        # Como cada timestamp tiene 2 registros (uno por provider), agrupamos por tiempo
+        # y tomamos el max de degradation_cycle para ese timestamp
+        unique_degradations = degraded_data.groupby('time')['degradation_cycle'].max()
+        cycle_distribution = unique_degradations.value_counts().sort_index()
+        
+        logger.info(f"   degradation_cycle distribution (degradaciones únicas):")
+        for cycle, count in cycle_distribution.items():
+            logger.info(f"     Ciclo {cycle}: {count} degradaciones únicas")
         
         # ✅ Separar por provider degradado vs saludable
-        # Provider degradado = tiene score_difference > 0 (su score es peor)
         degraded_provider_mask = degraded_data['score_difference'] > 0
         degraded_records = degraded_data[degraded_provider_mask]
         
@@ -156,21 +161,16 @@ class ThresholdOptimizerCorrected:
         }
     
     def analyze_switch_margin_corrected(self, df):
-        """
-        ✅ CORREGIDO: Analiza score_difference ABSOLUTA
-        Solo en momentos de degradación
-        """
-        logger.info("\nPASO 3: Analizar switch_margin (CORREGIDO)")
+        """Analiza score_difference ABSOLUTA en momentos de degradación"""
+        logger.info("\nPASO 3: Analizar switch_margin")
         logger.info("-" * 80)
         
-        # Solo ciclos de degradación
         degraded_data = df[df['degradation_cycle'] > 0].copy()
         
         if len(degraded_data) == 0:
             logger.warning("⚠️ No hay datos de degradación")
-            return 5.0  # Default
+            return 5.0
         
-        # ✅ Usar valor absoluto de score_difference
         degraded_data['score_diff_abs'] = degraded_data['score_difference'].abs()
         
         logger.info(f"\n📊 Diferencia de scores en degradación (n={len(degraded_data)}):")
@@ -180,7 +180,6 @@ class ThresholdOptimizerCorrected:
         logger.info(f"   p75: {degraded_data['score_diff_abs'].quantile(0.75):.2f}")
         logger.info(f"   p90: {degraded_data['score_diff_abs'].quantile(0.90):.2f}")
         
-        # ✅ Recomendar switch_margin basado en p75
         switch_margin_p75 = degraded_data['score_diff_abs'].quantile(0.75)
         switch_margin_p50 = degraded_data['score_diff_abs'].quantile(0.50)
         
@@ -189,7 +188,6 @@ class ThresholdOptimizerCorrected:
         logger.info(f"   Alternativa conservadora: {switch_margin_p50:.2f} (p50)")
         logger.info(f"   Actual: 5.0")
         
-        # Validar que no sea demasiado bajo
         if switch_margin_p75 < 3:
             logger.warning(f"   ⚠️ Advertencia: switch_margin muy bajo ({switch_margin_p75:.2f})")
             logger.warning(f"   ➜ Puede causar FLAPPING. Usar mínimo 3.0")
@@ -198,51 +196,40 @@ class ThresholdOptimizerCorrected:
         return switch_margin_p75
     
     def train_logistic_regression(self, df):
-        """
-        Entrenar modelo para probabilidad de failover
-        ✅ CORREGIDO: Usar failover_event como target (no provider_changed)
-        """
+        """Entrenar modelo para probabilidad de failover"""
         logger.info("\nPASO 4: Entrenar Logistic Regression")
         logger.info("-" * 80)
         
-        # ✅ CORRECCIÓN: Usar failover_event como target
         X = df[['peer_latency_ms', 'dns_latency_ms', 'score_difference']].copy()
-        y = df['failover_event'].copy()  # ✅ En lugar de is_degraded
+        y = df['failover_event'].copy()
         
-        # Validar que hay suficientes eventos positivos
         if y.sum() < 10:
             logger.warning(f"⚠️ Solo {y.sum()} eventos de failover. Modelo puede ser inestable.")
         
-        # Split
         from sklearn.model_selection import train_test_split
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, test_size=0.2, random_state=42, stratify=y
         )
         
-        # Escalar
         self.scaler = StandardScaler()
         X_train_scaled = self.scaler.fit_transform(X_train)
         X_test_scaled = self.scaler.transform(X_test)
         
         self.X_test = X_test_scaled
         
-        # Entrenar
         logger.info("🔄 Entrenando modelo logístico...")
         self.model = LogisticRegression(max_iter=1000, random_state=42)
         self.model.fit(X_train_scaled, y_train)
         
-        # Predicciones
         self.y_pred_proba = self.model.predict_proba(X_test_scaled)[:, 1]
         self.y_test = y_test
         
-        # ROC Curve
         self.fpr, self.tpr, self.thresholds = roc_curve(y_test, self.y_pred_proba)
         self.roc_auc = auc(self.fpr, self.tpr)
         
         logger.info(f"✅ Modelo entrenado")
         logger.info(f"   ROC-AUC: {self.roc_auc:.4f}")
         
-        # Encontrar threshold óptimo
         best_f1 = 0
         best_threshold = 0.5
         
@@ -258,7 +245,7 @@ class ThresholdOptimizerCorrected:
         logger.info(f"   F1-score: {best_f1:.4f}")
     
     def plot_roc_curve(self, save_path=None):
-        """Plotear ROC Curve (con manejo de errores)"""
+        """Plotear ROC Curve"""
         logger.info("\nPASO 5: Generar visualizaciones")
         logger.info("-" * 80)
         
@@ -279,7 +266,6 @@ class ThresholdOptimizerCorrected:
                     logger.info(f"✅ Gráfico guardado: {save_path}")
                 except Exception as e:
                     logger.warning(f"⚠️ No se pudo guardar el gráfico: {e}")
-                    logger.warning(f"   Continuando sin guardar...")
             
             plt.close()
         except Exception as e:
@@ -315,29 +301,18 @@ LATENCY_THRESHOLDS = {{
 
 
 def main():
-    """Ejecutar pipeline completo corregido"""
+    """Ejecutar pipeline completo"""
     optimizer = ThresholdOptimizerCorrected()
     
-    # 1. Cargar datos
     df = optimizer.load_and_prepare_data(days=30)
-    
-    # 2. Analizar latencias (CORREGIDO)
     latency_thresholds = optimizer.analyze_latency_thresholds_corrected(df)
-    
-    # 3. Analizar switch_margin (CORREGIDO)
     switch_margin = optimizer.analyze_switch_margin_corrected(df)
-    
-    # 4. Entrenar modelo
     optimizer.train_logistic_regression(df)
-    
-    # 5. Plotear ROC
     optimizer.plot_roc_curve(save_path='/tmp/roc_curve.png')
-    
-    # 6. Reporte final
     optimizer.generate_report(latency_thresholds, switch_margin)
     
     logger.info("\n" + "=" * 80)
-    logger.info("✅ OPTIMIZACIÓN COMPLETADA (VERSIÓN CORREGIDA)")
+    logger.info("✅ OPTIMIZACIÓN COMPLETADA")
     logger.info("=" * 80)
     
     return latency_thresholds, switch_margin
