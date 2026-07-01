@@ -1,11 +1,11 @@
 """
 train_from_ml_features.py
 Entrena XGBoost con Cross-Validation usando datos de ml_features
-
 ✅ CORRECCIONES:
 ├─ Usa Cross-Validation (5 folds) para pesos más estables
 ├─ Eliminado data leakage de degradation_cycle
-└─ Análisis de estabilidad de features
+├─ Análisis de estabilidad de features
+└─ NUEVO: Usa failover_event como target (conteo correcto)
 """
 import psycopg2
 import pandas as pd
@@ -24,7 +24,10 @@ def load_training_data_from_ml_features(
     timescaledb_db='bgp_failover_db',
     timescaledb_user='bgp_app'
 ):
-    """Carga datos de entrenamiento desde ml_features"""
+    """
+    Carga datos de entrenamiento desde ml_features
+    ✅ ACTUALIZADO: Incluye failover_event como target correcto
+    """
     
     logger.info(f"📥 Cargando {days} días de datos de ml_features...")
     
@@ -76,8 +79,9 @@ def load_training_data_from_ml_features(
         COALESCE(relative_severity, 'normal') as relative_severity,
         COALESCE(combined_severity, 'normal') as combined_severity,
         COALESCE(is_combined_anomaly, FALSE) as is_combined_anomaly,
-        -- Target
-        should_failover
+        -- ✅ NUEVO: Targets
+        should_failover,
+        COALESCE(failover_event, 0) as failover_event
     FROM ml_features
     WHERE time >= NOW() - INTERVAL '{days} days'
     ORDER BY time
@@ -107,9 +111,22 @@ def load_training_data_from_ml_features(
         else:
             logger.warning(f"   ✗ {feature}: NO ENCONTRADO")
     
-    logger.info(f"   Target distribution:")
+    # ✅ NUEVO: Verificar failover_event
+    if 'failover_event' in df.columns:
+        failover_events = df['failover_event'].sum()
+        unique_failover_times = df[df['failover_event'] == 1]['time'].nunique()
+        logger.info(f"   ✓ failover_event: {failover_events} eventos únicos en {unique_failover_times} ciclos")
+    else:
+        logger.warning(f"   ✗ failover_event: NO ENCONTRADO (usando should_failover como fallback)")
+    
+    logger.info(f"   Target distribution (should_failover):")
     logger.info(f"     - No failover: {(df['should_failover']==0).sum()}")
     logger.info(f"     - Failover: {(df['should_failover']==1).sum()}")
+    
+    if 'failover_event' in df.columns:
+        logger.info(f"   Target distribution (failover_event):")
+        logger.info(f"     - No failover: {(df['failover_event']==0).sum()}")
+        logger.info(f"     - Failover: {(df['failover_event']==1).sum()}")
     
     # Conteo correcto de failovers únicos
     unique_failover_times = df[df['should_failover'] == 1]['time'].nunique()
@@ -186,6 +203,7 @@ def main():
     print("  ✅ Regularización aumentada (max_depth=3, reg_alpha=0.1)")
     print("  ✅ Análisis de estabilidad de features")
     print("  ✅ Pesos promediados entre folds")
+    print("  ✅ NUEVO: failover_event como target (conteo correcto)")
 
 
 if __name__ == '__main__':
