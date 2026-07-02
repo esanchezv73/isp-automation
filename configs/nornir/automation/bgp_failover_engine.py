@@ -5,8 +5,8 @@ BGP Failover Engine VERSIÓN FINAL CON DETECCIÓN COMBINADA
 - Persistencia de cycle_number y current_provider
 - TimescaleDB integrado
 - ✅ DETECCIÓN COMBINADA: Z-score + Absolute + Relative
-- ✅ Conversión automática de tipos numpy
-- ✅ INSERT dinámico en TimescaleDB
+- ✅ NUEVA FÓRMULA DE SCORING: peer×0.4 + dns×0.6 + loss×0.5 + jitter×0.5
+  (Alineada con draft IETF "BGP Performance-aware Routing Mechanism")
 """
 import requests
 import time
@@ -61,6 +61,14 @@ TIMESCALEDB_USER = 'bgp_app'
 TIMESCALEDB_PASSWORD = 'bgp_app_password'
 SUSTAINED_DEGRADATION_CYCLES = 3
 IMMEDIATE_FAILOVER_PACKET_LOSS = 20.0
+
+# ✅ NUEVOS PESOS DE SCORING (alineados con draft IETF)
+SCORING_WEIGHTS = {
+    'peer_latency': 0.4,   # Reducido de 0.7 (latencia acumulada DNS es más representativa)
+    'dns_latency': 0.6,    # Aumentado de 0.3 (draft IETF: cumulative link latency)
+    'loss': 0.5,           # Reducido de 10 (evita contaminación por spikes momentáneos)
+    'jitter': 0.5          # Sin cambio
+}
 
 # ✅ Umbrales de Z-score
 Z_SCORE_THRESHOLDS = {
@@ -118,9 +126,23 @@ class LatencyMetrics:
 
     @property
     def quality_score(self) -> float:
-        loss_penalty = (self.peer_loss + self.dns_loss) * 10
-        weighted_latency = (self.peer_avg * 0.7) + (self.dns_avg * 0.3)
-        jitter_penalty = (self.peer_stddev + self.dns_stddev) * 0.5
+        """
+        ✅ NUEVA FÓRMULA DE SCORING (alineada con draft IETF)
+        
+        score = (peer_avg × 0.4) + (dns_avg × 0.6) + (loss × 0.5) + (jitter × 0.5)
+        
+        Justificación de los pesos:
+        - peer_latency (0.4): Latencia al peer BGP (1-3 hops), menos estable
+        - dns_latency (0.6): Latencia acumulada al DNS (5-15 hops), más estable y representativa
+          según draft IETF "BGP Performance-aware Routing Mechanism"
+        - loss (0.5): Pérdida de paquetes, penalización moderada para evitar contaminación
+          del historial por spikes momentáneos (reducido de ×10)
+        - jitter (0.5): Variabilidad de latencia, sin cambio
+        """
+        loss_penalty = (self.peer_loss + self.dns_loss) * SCORING_WEIGHTS['loss']
+        weighted_latency = (self.peer_avg * SCORING_WEIGHTS['peer_latency']) + \
+                          (self.dns_avg * SCORING_WEIGHTS['dns_latency'])
+        jitter_penalty = (self.peer_stddev + self.dns_stddev) * SCORING_WEIGHTS['jitter']
         return weighted_latency + loss_penalty + jitter_penalty
 
 
@@ -243,6 +265,7 @@ class BGPFailoverEngine:
         logging.info(f"🚀 Engine inicializado:")
         logging.info(f"   Ciclo actual: {self.cycle_count}")
         logging.info(f"   Provider actual: {self.current_primary_provider}")
+        logging.info(f"   📊 Scoring Weights: {SCORING_WEIGHTS}")
         logging.info(f"   📊 Z-Score Thresholds: {Z_SCORE_THRESHOLDS}")
         logging.info(f"   📊 Absolute Thresholds (peer): "
                     f"warning={ABSOLUTE_LATENCY_THRESHOLDS['peer_warning']}ms, "
@@ -696,9 +719,20 @@ class BGPFailoverEngine:
                     'dns_jitter_ms': round(metrics["dns_jitter_ms"], 2),
                     'dns_loss_pct': round(metrics["dns_loss_pct"], 2),
                     'score': round(metrics["score"], 2),
-                    'weighted_latency': round((metrics["peer_latency_ms"] * 0.7) + (metrics["dns_latency_ms"] * 0.3), 2),
-                    'loss_penalty': round(((metrics["peer_loss_pct"] + metrics["dns_loss_pct"]) / 2) * 10, 2),
-                    'jitter_penalty': round(((metrics["peer_jitter_ms"] + metrics["dns_jitter_ms"]) / 2) * 0.5, 2),
+                    # ✅ ACTUALIZADO: Nuevos pesos de scoring
+                    'weighted_latency': round(
+                        (metrics["peer_latency_ms"] * SCORING_WEIGHTS['peer_latency']) + 
+                        (metrics["dns_latency_ms"] * SCORING_WEIGHTS['dns_latency']), 
+                        2
+                    ),
+                    'loss_penalty': round(
+                        ((metrics["peer_loss_pct"] + metrics["dns_loss_pct"]) / 2) * SCORING_WEIGHTS['loss'], 
+                        2
+                    ),
+                    'jitter_penalty': round(
+                        ((metrics["peer_jitter_ms"] + metrics["dns_jitter_ms"]) / 2) * SCORING_WEIGHTS['jitter'], 
+                        2
+                    ),
                     # ✅ Campos de Z-score
                     'z_score_peer': round(metrics.get("z_score_peer", 0.0), 2),
                     'z_score_severity': metrics.get("z_score_severity", "normal"),
@@ -843,6 +877,7 @@ def main():
     logging.info(f"📍 Providers: {', '.join(PROVIDERS)}")
     logging.info(f"⏱️ Ciclo: {CYCLE_INTERVAL}s")
     logging.info(f"📊 Switch Margin: {LATENCY_THRESHOLDS['switch_margin']} puntos")
+    logging.info(f"📊 Scoring Weights: {SCORING_WEIGHTS}")
     logging.info(f"📊 Z-Score Thresholds: warning={Z_SCORE_THRESHOLDS['warning']}, "
                 f"degraded={Z_SCORE_THRESHOLDS['degraded']}, critical={Z_SCORE_THRESHOLDS['critical']}")
     logging.info(f"📊 Absolute Thresholds (peer): "
